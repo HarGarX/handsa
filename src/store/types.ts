@@ -4,6 +4,8 @@ export type ToolId = 'select' | 'wall' | 'door' | 'window' | 'label' | 'measure'
 
 export type SnapIncrement = 1 | 5 | 10;
 
+export type JointStyle = 'square' | 'round';
+
 export type SelectableType = 'wall' | 'opening' | 'label';
 
 export interface SelectionEntry {

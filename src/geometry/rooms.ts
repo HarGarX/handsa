@@ -1,6 +1,6 @@
 import type { Point, Wall } from '../types/plan';
 import { polygonAreaM2, polygonCentroid, signedArea } from './area';
-import { projectPointToSegment, wallLength } from './segment';
+import { buildWallGraph, type WallGraphEdge } from './wallGraph';
 
 export interface Room {
   id: string;
@@ -9,70 +9,9 @@ export interface Room {
   centroid: Point;
 }
 
-interface GraphNode {
-  id: string;
-  point: Point;
-}
-
-interface GraphEdge {
-  a: string;
-  b: string;
-}
-
 interface AdjEntry {
   to: string;
   angle: number;
-}
-
-/**
- * Builds a planar graph from wall endpoints, merging coincident endpoints
- * within `tolerance` and splitting walls at T-junctions (where another wall's
- * endpoint lands in the interior of this wall's span, e.g. a partition wall
- * meeting an exterior wall mid-span rather than at a shared corner).
- */
-function buildGraph(walls: Wall[], tolerance: number): { nodes: GraphNode[]; edges: GraphEdge[] } {
-  const nodes: GraphNode[] = [];
-  function findOrCreateNode(p: Point): string {
-    for (const n of nodes) {
-      if (Math.hypot(n.point.x - p.x, n.point.y - p.y) <= tolerance) return n.id;
-    }
-    const id = `n${nodes.length}`;
-    nodes.push({ id, point: p });
-    return id;
-  }
-
-  const wallEndpointIds = walls.map((w) => ({
-    startId: findOrCreateNode(w.start),
-    endId: findOrCreateNode(w.end),
-  }));
-
-  const edges: GraphEdge[] = [];
-
-  walls.forEach((wall, idx) => {
-    const { startId, endId } = wallEndpointIds[idx]!;
-    const len = wallLength(wall.start, wall.end);
-    if (len === 0) return;
-    const tTol = tolerance / len;
-
-    const junctions: { nodeId: string; t: number }[] = [];
-    for (const n of nodes) {
-      if (n.id === startId || n.id === endId) continue;
-      const proj = projectPointToSegment(n.point, wall.start, wall.end);
-      if (proj.distance <= tolerance && proj.t > tTol && proj.t < 1 - tTol) {
-        junctions.push({ nodeId: n.id, t: proj.t });
-      }
-    }
-    junctions.sort((x, y) => x.t - y.t);
-
-    const chain = [startId, ...junctions.map((j) => j.nodeId), endId];
-    for (let i = 0; i < chain.length - 1; i++) {
-      const a = chain[i]!;
-      const b = chain[i + 1]!;
-      if (a !== b) edges.push({ a, b });
-    }
-  });
-
-  return { nodes, edges };
 }
 
 /**
@@ -90,7 +29,7 @@ function buildGraph(walls: Wall[], tolerance: number): { nodes: GraphNode[]; edg
 export function detectRooms(walls: Wall[], tolerance = 1): Room[] {
   if (walls.length === 0) return [];
 
-  const { nodes, edges } = buildGraph(walls, tolerance);
+  const { nodes, edges } = buildWallGraph(walls, tolerance);
   if (edges.length === 0) return [];
 
   const nodeById = new Map(nodes.map((n) => [n.id, n]));
@@ -113,7 +52,7 @@ export function detectRooms(walls: Wall[], tolerance = 1): Room[] {
   }
   for (const e of edges) union(e.a, e.b);
 
-  const componentsByRoot = new Map<string, GraphEdge[]>();
+  const componentsByRoot = new Map<string, WallGraphEdge[]>();
   for (const e of edges) {
     const root = find(e.a);
     const list = componentsByRoot.get(root) ?? [];

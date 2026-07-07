@@ -4,6 +4,7 @@ import { screenToWorld } from '../geometry/viewport';
 import { toolRegistry } from '../tools/registry';
 import type { PointerInfo } from '../tools/types';
 import { GridLayer } from '../render/GridLayer';
+import { JointsLayer } from '../render/JointsLayer';
 import { WallsLayer } from '../render/WallsLayer';
 import { OpeningsLayer } from '../render/OpeningsLayer';
 import { LabelsLayer } from '../render/LabelsLayer';
@@ -22,6 +23,7 @@ export function Canvas() {
   const plan = usePlanStore((s) => s.plan);
   const viewport = usePlanStore((s) => s.viewport);
   const activeTool = usePlanStore((s) => s.activeTool);
+  const jointStyle = usePlanStore((s) => s.jointStyle);
   const selection = usePlanStore((s) => s.selection);
   const interaction = usePlanStore((s) => s.interaction);
   const setInteraction = usePlanStore((s) => s.setInteraction);
@@ -262,6 +264,7 @@ export function Canvas() {
         <GridLayer viewport={viewport} width={size.width} height={size.height} />
         <g transform={`translate(${viewport.offsetX} ${viewport.offsetY}) scale(${viewport.scale})`}>
           <RoomsLayer walls={plan.walls} scale={viewport.scale} />
+          <JointsLayer walls={plan.walls} selectedWallIds={selectedWallIds} jointStyle={jointStyle} />
           <WallsLayer walls={plan.walls} openings={plan.openings} selectedIds={selectedWallIds} scale={viewport.scale} />
           <OpeningsLayer walls={plan.walls} openings={plan.openings} selectedIds={selectedOpeningIds} scale={viewport.scale} />
           <LabelsLayer labels={plan.labels} selectedIds={selectedLabelIds} />

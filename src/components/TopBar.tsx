@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
-import { Undo2, Redo2, Download, Upload, FolderOpen, HelpCircle, Image as ImageIcon, Magnet } from 'lucide-react';
+import { Undo2, Redo2, Download, Upload, FolderOpen, HelpCircle, Image as ImageIcon, Magnet, Square, Circle } from 'lucide-react';
 import { usePlanStore } from '../store/usePlanStore';
-import type { SnapIncrement } from '../store/types';
+import type { JointStyle, SnapIncrement } from '../store/types';
 import { exportPlanJson, exportPlanPng, readPlanJsonFile, InvalidPlanFileError } from '../lib/exportImport';
 
 export function TopBar() {
@@ -15,6 +15,8 @@ export function TopBar() {
   const snapIncrement = usePlanStore((s) => s.snapIncrement);
   const setSnapEnabled = usePlanStore((s) => s.setSnapEnabled);
   const setSnapIncrement = usePlanStore((s) => s.setSnapIncrement);
+  const jointStyle = usePlanStore((s) => s.jointStyle);
+  const setJointStyle = usePlanStore((s) => s.setJointStyle);
   const setShowPlansModal = usePlanStore((s) => s.setShowPlansModal);
   const setShowShortcutModal = usePlanStore((s) => s.setShowShortcutModal);
   const importPlan = usePlanStore((s) => s.importPlan);
@@ -48,7 +50,7 @@ export function TopBar() {
   async function handleExportPng() {
     setExportingPng(true);
     try {
-      await exportPlanPng(plan);
+      await exportPlanPng(plan, jointStyle);
     } catch {
       setToast('Failed to export PNG.');
     } finally {
@@ -147,6 +149,29 @@ export function TopBar() {
         <option value={5}>5 cm</option>
         <option value={10}>10 cm</option>
       </select>
+
+      <div className="h-6 w-px bg-gray-200" />
+
+      <div className="flex items-center gap-0.5 rounded-lg border border-gray-200 p-0.5" title="Wall joint style">
+        {(['square', 'round'] as JointStyle[]).map((style) => {
+          const Icon = style === 'square' ? Square : Circle;
+          const active = jointStyle === style;
+          return (
+            <button
+              key={style}
+              type="button"
+              title={`${style === 'square' ? 'Square' : 'Round'} wall joints`}
+              aria-pressed={active}
+              onClick={() => setJointStyle(style)}
+              className={`flex h-7 w-7 items-center justify-center rounded ${
+                active ? 'bg-blue-600 text-white' : 'text-gray-500 hover:bg-gray-100'
+              }`}
+            >
+              <Icon size={14} />
+            </button>
+          );
+        })}
+      </div>
 
       <div className="flex-1" />
 

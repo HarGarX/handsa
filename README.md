@@ -25,11 +25,14 @@ src/
   geometry/         Pure, framework-free functions — the only place with math.
                      viewport (world<->screen transforms, zoom/pan/fit),
                      snapping (grid + angle snap), segment (projections,
-                     lengths, angles), opening (extents, overlap clamping),
-                     area (shoelace formula), rooms (planar face detection),
-                     endpoints (coincident-endpoint / magnetism lookups),
-                     wallShape (wall-rectangle-with-gaps geometry), hitTest
-                     (click/hover hit-testing), grid, format.
+                     lengths, angles, segment-segment intersection), opening
+                     (extents, overlap clamping), area (shoelace formula),
+                     wallGraph (shared endpoint/T-junction/crossing graph
+                     builder), rooms (planar face detection, built on
+                     wallGraph), joints (wall-joint fill caps, also built on
+                     wallGraph), endpoints (coincident-endpoint / magnetism
+                     lookups), wallShape (wall-rectangle-with-gaps geometry),
+                     hitTest (click/hover hit-testing), grid, format.
                      Unit-tested in geometry/__tests__/.
   store/            One Zustand store (usePlanStore). `plan` is the single
                      serializable object (walls/openings/labels + metadata) —
@@ -87,20 +90,47 @@ wall's bounds and away from other openings on the same wall as you drag it;
 `isOpeningInvalid` flags (in red) an opening that no longer fits because its
 wall was shrunk below the opening's width.
 
+### The wall graph (shared by rooms and joints)
+
+`geometry/wallGraph.ts` builds one planar graph from the wall list and is
+reused by both room detection and wall-joint fill. It merges endpoints within
+1cm into shared nodes, then splits walls at two kinds of junctions:
+
+- **T-junctions** — another wall's *endpoint* lands in the interior of this
+  wall's span (how a partition wall usually meets an exterior wall).
+- **Mid-span crossings** — two walls cross where *neither* endpoint sits at
+  the crossing point (e.g. two full walls forming a four-way intersection),
+  found via bounded segment-segment intersection (`segment.ts`).
+
 ### Room detection
 
-`geometry/rooms.ts` builds a planar graph from wall endpoints (merged within
-1cm) **and splits walls at T‑junctions** — i.e. where another wall's endpoint
-lands mid‑span rather than at a shared corner, which is how most interior
-partition walls meet exterior walls. It then traces faces with the standard
-"next edge in rotational order" algorithm: every directed edge belongs to
-exactly one face, each connected component has exactly one unbounded outer
-face (the largest by area) and zero or more bounded interior faces, which are
-reported as rooms with their shoelace area. Dangling wall segments
-(degree-1 endpoints) contribute a zero-area "spike" to the outer face instead
-of creating a phantom room, so open/unclosed wall chains never render a
-bogus area label. Recomputation is debounced 150ms off the walls array so
-dragging stays smooth.
+`geometry/rooms.ts` traces faces over the wall graph with the standard "next
+edge in rotational order" algorithm: every directed edge belongs to exactly
+one face, each connected component has exactly one unbounded outer face (the
+largest by area) and zero or more bounded interior faces, which are reported
+as rooms with their shoelace area. Dangling wall segments (degree-1
+endpoints) contribute a zero-area "spike" to the outer face instead of
+creating a phantom room, so open/unclosed wall chains never render a bogus
+area label. Recomputation is debounced 150ms off the walls array so dragging
+stays smooth.
+
+### Wall joints
+
+`geometry/joints.ts` finds every wall-graph node where 2+ walls converge and
+emits a fill "cap" (a square or a circle, per the top-bar toggle) centered on
+that point, sized to `maxConnectingThickness / 2`. That radius is always
+enough to fully cover the joint regardless of the walls' angle: each
+connecting wall's rendered rectangle has its end-corners offset purely
+perpendicular to that wall at exactly `thickness / 2` from the joint point
+(zero longitudinal offset, since it's right at the wall's endpoint), so every
+corner is within `radius` of the center — a circle of that radius covers all
+of them, and so does an axis-aligned square (each corner's individual x/y
+offset is bounded by its straight-line distance from the center). This
+covers simple corners, T-junctions, and 4-way crossings uniformly, without
+needing per-angle mitering math. Unlike room detection this isn't
+debounced — the whole point is to look seamless *while* dragging, and the
+O(n²) crossing check is cheap enough (well under a millisecond for a few
+hundred walls) to run every frame.
 
 ### Undo/redo & persistence
 
@@ -115,10 +145,12 @@ switcher; each plan's JSON also lives under its own key.
 
 ## Known limitations / simplifications
 
-- **Wall joints are butt joints**, not mitered, so acute-angle corners can
-  show a small gap/notch — acceptable per the spec, and `wallShape.ts`
-  renders each wall as independent rectangle segments so a join fix can be
-  layered on without changing the data model (see Roadmap Phase 1).
+- **Wall joints are filled with a square/round cap** (see "Wall joints"
+  above), not a true mitered/filleted edge — visually gap-free at any angle,
+  but the two connecting walls' edges aren't actually trimmed to meet at a
+  point. `wallShape.ts` still renders each wall as independent rectangle
+  segments, so true mitered edges can be layered on later without changing
+  the data model (see Roadmap Phase 1).
 - **Dragging a wall body** only translates that one wall; it does not drag
   connected neighbors along (dragging an **endpoint handle** does, via
   coincident-endpoint tracking + optional magnetism to other walls). This
@@ -147,23 +179,21 @@ Small, high-value fixes to the single-layer (architectural) editor before
 layering more disciplines on top of it.
 
 - **Wall joint fill (square or round), so joints stop showing gaps/notches.**
-  Two tiers, cheapest first:
-  - *v1 — join caps:* at every node where 2+ walls meet, draw a filled cap
-    (a square sized to the max connecting thickness, or a circle/rounded-rect
-    of the same size) centered on the joint. This is a few dozen lines against
-    the existing `rooms.ts` graph-building code (it already merges endpoints
-    within tolerance and finds T-junctions) — reuse that graph to find every
-    node with degree ≥ 2, and render a cap shape per node. Covers T-junctions
-    and 4-way crossings for free, not just simple corners. A "Square" /
-    "Round" toggle in the top bar controls the cap shape and (for round) a
-    corner-radius setting.
-  - *v2 — true mitered/filleted geometry:* extend or trim each wall's offset
-    edges to meet exactly at the joint (SVG `stroke-linejoin: miter` or
-    `round`, computed manually since we don't use stroke-based rendering).
-    Sharper and more "correct" for two-wall bends at odd angles, but doesn't
-    generalize as cleanly to T/X junctions, so it's a refinement on top of
-    v1's caps rather than a replacement — use mitered edges where exactly 2
-    walls meet, fall back to a cap where 3+ meet.
+  Two tiers:
+  - ✅ *v1 — join caps (shipped):* `geometry/joints.ts` finds every wall-graph
+    node where 2+ walls converge and draws a filled cap (square or circle,
+    toggled in the top bar) sized to `maxConnectingThickness / 2`, which is
+    always enough to cover the gap at any angle (see "Wall joints" above).
+    Covers simple corners, T-junctions, and 4-way crossings uniformly.
+  - *v2 — true mitered/filleted geometry (not yet built):* extend or trim
+    each wall's offset edges to meet exactly at the joint (SVG
+    `stroke-linejoin: miter` or `round`, computed manually since we don't use
+    stroke-based rendering). Sharper and more "correct" for two-wall bends at
+    odd angles, but doesn't generalize as cleanly to T/X junctions, so it'd
+    be a refinement layered on top of v1's caps rather than a replacement —
+    mitered edges where exactly 2 walls meet, fall back to a cap where 3+
+    meet. Purely a rendering upgrade; v1 already ships correct, gap-free
+    joints, so this is a "nice to have," not a blocker for anything else.
 - **Unit system + drawing scale setting.** Two related but distinct controls:
   - A **display unit toggle** (metric cm/m ⟷ imperial in/ft) purely for
     input/display formatting — `Plan` keeps storing centimeters internally

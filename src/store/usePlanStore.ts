@@ -5,7 +5,7 @@ import { createEmptyPlan } from '../types/plan';
 import type { Viewport } from '../geometry/viewport';
 import { clampScale, zoomAt as geomZoomAt, panBy as geomPanBy, fitToPoints } from '../geometry/viewport';
 import type { EndpointRef } from '../geometry/endpoints';
-import type { InteractionState, SelectionEntry, SnapIncrement, ToolId } from './types';
+import type { InteractionState, JointStyle, SelectionEntry, SnapIncrement, ToolId } from './types';
 import {
   loadActivePlanId,
   loadPlan,
@@ -72,6 +72,7 @@ export interface PlanStore {
   activeTool: ToolId;
   snapEnabled: boolean;
   snapIncrement: SnapIncrement;
+  jointStyle: JointStyle;
   interaction: InteractionState;
   propertiesPanelCollapsed: boolean;
   plansIndex: PlanSummary[];
@@ -122,6 +123,7 @@ export interface PlanStore {
   setActiveTool: (tool: ToolId) => void;
   setSnapEnabled: (enabled: boolean) => void;
   setSnapIncrement: (inc: SnapIncrement) => void;
+  setJointStyle: (style: JointStyle) => void;
 
   // --- interaction (transient) ---
   setInteraction: (patch: Partial<InteractionState>) => void;
@@ -155,6 +157,7 @@ export const usePlanStore = create<PlanStore>((set, get) => ({
   activeTool: 'select',
   snapEnabled: true,
   snapIncrement: 5,
+  jointStyle: 'square',
   interaction: emptyInteraction,
   propertiesPanelCollapsed: false,
   plansIndex: loadPlansIndex(),
@@ -360,6 +363,7 @@ export const usePlanStore = create<PlanStore>((set, get) => ({
 
   setSnapEnabled: (enabled) => set({ snapEnabled: enabled }),
   setSnapIncrement: (inc) => set({ snapIncrement: inc }),
+  setJointStyle: (style) => set({ jointStyle: style }),
 
   setInteraction: (patch) => set((state) => ({ interaction: { ...state.interaction, ...patch } })),
   resetInteraction: () => set({ interaction: emptyInteraction }),

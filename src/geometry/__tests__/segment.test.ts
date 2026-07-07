@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { pointAt, projectPointToSegment, unitNormal, wallAngle, wallLength } from '../segment';
+import { pointAt, projectPointToSegment, segmentIntersection, unitNormal, wallAngle, wallLength } from '../segment';
 
 describe('wallLength / wallAngle', () => {
   it('computes length of a 3-4-5 triangle segment', () => {
@@ -45,5 +45,25 @@ describe('projectPointToSegment', () => {
     const proj = projectPointToSegment({ x: 150, y: 0 }, { x: 0, y: 0 }, { x: 100, y: 0 });
     expect(proj.t).toBe(1);
     expect(proj.point).toEqual({ x: 100, y: 0 });
+  });
+});
+
+describe('segmentIntersection', () => {
+  it('finds the crossing point of two perpendicular segments that cross mid-span', () => {
+    const inter = segmentIntersection({ x: -200, y: 0 }, { x: 200, y: 0 }, { x: 0, y: -200 }, { x: 0, y: 200 });
+    expect(inter).not.toBeNull();
+    expect(inter!.point).toEqual({ x: 0, y: 0 });
+    expect(inter!.tA).toBeCloseTo(0.5, 9);
+    expect(inter!.tB).toBeCloseTo(0.5, 9);
+  });
+
+  it('returns null for segments that do not actually cross within their bounds', () => {
+    const inter = segmentIntersection({ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 200, y: -50 }, { x: 200, y: 50 });
+    expect(inter).toBeNull();
+  });
+
+  it('returns null for parallel segments', () => {
+    const inter = segmentIntersection({ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 0, y: 10 }, { x: 100, y: 10 });
+    expect(inter).toBeNull();
   });
 });

@@ -4,9 +4,11 @@ import type { Plan } from '../types/plan';
 import { isValidPlanShape } from '../types/plan';
 import { fitToPoints } from '../geometry/viewport';
 import { RoomsLayer } from '../render/RoomsLayer';
+import { JointsLayer } from '../render/JointsLayer';
 import { WallsLayer } from '../render/WallsLayer';
 import { OpeningsLayer } from '../render/OpeningsLayer';
 import { LabelsLayer } from '../render/LabelsLayer';
+import type { JointStyle } from '../store/types';
 
 function downloadBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
@@ -50,13 +52,17 @@ const EXPORT_BASE_HEIGHT = 1000;
 const EXPORT_PADDING_PX = 60;
 const EXPORT_SCALE_MULTIPLIER = 2;
 
-function buildExportSvgMarkup(plan: Plan): { markup: string; width: number; height: number } {
+function buildExportSvgMarkup(
+  plan: Plan,
+  jointStyle: JointStyle,
+): { markup: string; width: number; height: number } {
   const points = [...plan.walls.flatMap((w) => [w.start, w.end]), ...plan.labels.map((l) => l.position)];
   const viewport = fitToPoints(points, EXPORT_BASE_WIDTH, EXPORT_BASE_HEIGHT, EXPORT_PADDING_PX);
 
   const inner = renderToStaticMarkup(
     <>
       <RoomsLayer walls={plan.walls} scale={viewport.scale} />
+      <JointsLayer walls={plan.walls} selectedWallIds={new Set()} jointStyle={jointStyle} />
       <WallsLayer
         walls={plan.walls}
         openings={plan.openings}
@@ -77,8 +83,8 @@ function buildExportSvgMarkup(plan: Plan): { markup: string; width: number; heig
   return { markup, width: EXPORT_BASE_WIDTH, height: EXPORT_BASE_HEIGHT };
 }
 
-export async function exportPlanPng(plan: Plan): Promise<void> {
-  const { markup, width, height } = buildExportSvgMarkup(plan);
+export async function exportPlanPng(plan: Plan, jointStyle: JointStyle): Promise<void> {
+  const { markup, width, height } = buildExportSvgMarkup(plan, jointStyle);
   const svgBlob = new Blob([markup], { type: 'image/svg+xml;charset=utf-8' });
   const url = URL.createObjectURL(svgBlob);
 

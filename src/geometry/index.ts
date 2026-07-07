@@ -9,3 +9,5 @@ export * from './wallShape';
 export * from './format';
 export * from './grid';
 export * from './hitTest';
+export * from './wallGraph';
+export * from './joints';

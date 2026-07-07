@@ -1,4 +1,5 @@
 export * from './GridLayer';
+export * from './JointsLayer';
 export * from './WallsLayer';
 export * from './OpeningsLayer';
 export * from './LabelsLayer';

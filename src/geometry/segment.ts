@@ -59,3 +59,32 @@ export function halfWidthToDeltaT(halfWidthCm: number, segmentLength: number): n
   if (segmentLength === 0) return 0;
   return halfWidthCm / segmentLength;
 }
+
+export interface SegmentIntersection {
+  point: Point;
+  tA: number; // 0..1 along segment A
+  tB: number; // 0..1 along segment B
+}
+
+/**
+ * True bounded segment-segment intersection (not the infinite-line
+ * intersection): returns null unless the crossing point falls within both
+ * segments' [0,1] range. Used to detect walls that cross mid-span, where
+ * neither wall's endpoint sits at the crossing point.
+ */
+export function segmentIntersection(a1: Point, a2: Point, b1: Point, b2: Point): SegmentIntersection | null {
+  const d1x = a2.x - a1.x;
+  const d1y = a2.y - a1.y;
+  const d2x = b2.x - b1.x;
+  const d2y = b2.y - b1.y;
+  const denom = d1x * d2y - d1y * d2x;
+  if (Math.abs(denom) < 1e-9) return null; // parallel or degenerate
+
+  const dx = b1.x - a1.x;
+  const dy = b1.y - a1.y;
+  const tA = (dx * d2y - dy * d2x) / denom;
+  const tB = (dx * d1y - dy * d1x) / denom;
+  if (tA < 0 || tA > 1 || tB < 0 || tB > 1) return null;
+
+  return { point: { x: a1.x + d1x * tA, y: a1.y + d1y * tA }, tA, tB };
+}
