@@ -1,8 +1,10 @@
 import { useRef, useState } from 'react';
 import { Undo2, Redo2, Download, Upload, FolderOpen, HelpCircle, Image as ImageIcon, Magnet, Square, Circle } from 'lucide-react';
 import { usePlanStore } from '../store/usePlanStore';
-import type { JointStyle, SnapIncrement } from '../store/types';
+import type { JointStyle, SnapIncrement, UnitSystem } from '../store/types';
 import { exportPlanJson, exportPlanPng, readPlanJsonFile, InvalidPlanFileError } from '../lib/exportImport';
+
+const PRESET_SCALES = [50, 100, 200];
 
 export function TopBar() {
   const plan = usePlanStore((s) => s.plan);
@@ -17,6 +19,10 @@ export function TopBar() {
   const setSnapIncrement = usePlanStore((s) => s.setSnapIncrement);
   const jointStyle = usePlanStore((s) => s.jointStyle);
   const setJointStyle = usePlanStore((s) => s.setJointStyle);
+  const unitSystem = usePlanStore((s) => s.unitSystem);
+  const setUnitSystem = usePlanStore((s) => s.setUnitSystem);
+  const exportScaleDenominator = usePlanStore((s) => s.exportScaleDenominator);
+  const setExportScaleDenominator = usePlanStore((s) => s.setExportScaleDenominator);
   const setShowPlansModal = usePlanStore((s) => s.setShowPlansModal);
   const setShowShortcutModal = usePlanStore((s) => s.setShowShortcutModal);
   const importPlan = usePlanStore((s) => s.importPlan);
@@ -26,6 +32,7 @@ export function TopBar() {
   const [nameDraft, setNameDraft] = useState(plan.name);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [exportingPng, setExportingPng] = useState(false);
+  const [customScaleMode, setCustomScaleMode] = useState(!PRESET_SCALES.includes(exportScaleDenominator));
 
   function commitName() {
     const trimmed = nameDraft.trim();
@@ -50,7 +57,7 @@ export function TopBar() {
   async function handleExportPng() {
     setExportingPng(true);
     try {
-      await exportPlanPng(plan, jointStyle);
+      await exportPlanPng(plan, jointStyle, unitSystem, exportScaleDenominator);
     } catch {
       setToast('Failed to export PNG.');
     } finally {
@@ -173,6 +180,23 @@ export function TopBar() {
         })}
       </div>
 
+      <div className="flex items-center gap-0.5 rounded-lg border border-gray-200 p-0.5" title="Display units">
+        {(['metric', 'imperial'] as UnitSystem[]).map((sys) => (
+          <button
+            key={sys}
+            type="button"
+            title={sys === 'metric' ? 'Metric (cm / m / m²)' : 'Imperial (ft-in / sq ft)'}
+            aria-pressed={unitSystem === sys}
+            onClick={() => setUnitSystem(sys)}
+            className={`rounded px-2 py-1 text-xs ${
+              unitSystem === sys ? 'bg-blue-600 text-white' : 'text-gray-500 hover:bg-gray-100'
+            }`}
+          >
+            {sys === 'metric' ? 'm' : 'ft'}
+          </button>
+        ))}
+      </div>
+
       <div className="flex-1" />
 
       <input ref={fileInputRef} type="file" accept="application/json" className="hidden" onChange={handleImportFile} />
@@ -194,6 +218,36 @@ export function TopBar() {
         <Download size={16} />
         JSON
       </button>
+      <select
+        value={customScaleMode ? 'custom' : exportScaleDenominator}
+        onChange={(e) => {
+          if (e.target.value === 'custom') {
+            setCustomScaleMode(true);
+          } else {
+            setCustomScaleMode(false);
+            setExportScaleDenominator(Number(e.target.value));
+          }
+        }}
+        title="PNG export drawing scale (doesn't affect the live canvas)"
+        className="rounded border border-gray-200 px-1.5 py-1 text-sm text-gray-700"
+      >
+        {PRESET_SCALES.map((s) => (
+          <option key={s} value={s}>
+            1:{s}
+          </option>
+        ))}
+        <option value="custom">Custom</option>
+      </select>
+      {customScaleMode && (
+        <input
+          type="number"
+          min={1}
+          value={exportScaleDenominator}
+          onChange={(e) => setExportScaleDenominator(Number(e.target.value) || 1)}
+          className="w-14 rounded border border-gray-200 px-1.5 py-1 text-sm text-gray-700"
+          title="Custom scale denominator (the N in 1:N)"
+        />
+      )}
       <button
         type="button"
         title="Export PNG"

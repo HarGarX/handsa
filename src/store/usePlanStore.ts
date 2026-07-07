@@ -6,7 +6,7 @@ import type { Viewport } from '../geometry/viewport';
 import { clampScale, zoomAt as geomZoomAt, panBy as geomPanBy, fitToPoints } from '../geometry/viewport';
 import type { EndpointRef } from '../geometry/endpoints';
 import { symbolCatalogFor } from '../lib/symbolCatalog';
-import type { InteractionState, JointStyle, SelectionEntry, SnapIncrement, ToolId } from './types';
+import type { InteractionState, JointStyle, SelectionEntry, SnapIncrement, ToolId, UnitSystem } from './types';
 import {
   loadActivePlanId,
   loadPlan,
@@ -56,6 +56,7 @@ const emptyInteraction: InteractionState = {
   openingGhost: null,
   runDraft: null,
   symbolGhost: null,
+  marquee: null,
   hoveredEndpoint: null,
   pendingLabel: null,
   editingLabelId: null,
@@ -64,11 +65,20 @@ const emptyInteraction: InteractionState = {
   isSpaceDown: false,
 };
 
+export interface ClipboardContent {
+  walls: Wall[];
+  openings: Opening[];
+  labels: Label[];
+  symbols: PlacedSymbol[];
+  runs: Run[];
+}
+
 export interface PlanStore {
   plan: Plan;
   pendingBase: Plan | null;
   past: Plan[];
   future: Plan[];
+  clipboard: ClipboardContent | null;
 
   selection: SelectionEntry[];
   viewport: Viewport;
@@ -78,6 +88,8 @@ export interface PlanStore {
   snapEnabled: boolean;
   snapIncrement: SnapIncrement;
   jointStyle: JointStyle;
+  unitSystem: UnitSystem;
+  exportScaleDenominator: number;
   interaction: InteractionState;
   propertiesPanelCollapsed: boolean;
   plansIndex: PlanSummary[];
@@ -130,6 +142,10 @@ export interface PlanStore {
   select: (entries: SelectionEntry[], additive?: boolean) => void;
   clearSelection: () => void;
   deleteSelected: () => void;
+  nudgeSelected: (dx: number, dy: number) => void;
+  copySelection: () => void;
+  pasteClipboard: () => void;
+  duplicateSelection: () => void;
 
   // --- viewport ---
   setViewport: (vp: Viewport) => void;
@@ -142,6 +158,8 @@ export interface PlanStore {
   setSnapEnabled: (enabled: boolean) => void;
   setSnapIncrement: (inc: SnapIncrement) => void;
   setJointStyle: (style: JointStyle) => void;
+  setUnitSystem: (unit: UnitSystem) => void;
+  setExportScaleDenominator: (denominator: number) => void;
 
   // --- interaction (transient) ---
   setInteraction: (patch: Partial<InteractionState>) => void;
@@ -169,6 +187,7 @@ export const usePlanStore = create<PlanStore>((set, get) => ({
   pendingBase: null,
   past: [],
   future: [],
+  clipboard: null,
 
   selection: [],
   viewport: { offsetX: 0, offsetY: 0, scale: 0.5 },
@@ -178,6 +197,8 @@ export const usePlanStore = create<PlanStore>((set, get) => ({
   snapEnabled: true,
   snapIncrement: 5,
   jointStyle: 'square',
+  unitSystem: 'metric',
+  exportScaleDenominator: 100,
   interaction: emptyInteraction,
   propertiesPanelCollapsed: false,
   plansIndex: loadPlansIndex(),
@@ -417,6 +438,119 @@ export const usePlanStore = create<PlanStore>((set, get) => ({
     get().deleteEntities(selection);
   },
 
+  nudgeSelected: (dx, dy) => {
+    const { selection, plan } = get();
+    if (selection.length === 0) return;
+    const wallIds = new Set(selection.filter((s) => s.type === 'wall').map((s) => s.id));
+    const labelIds = new Set(selection.filter((s) => s.type === 'label').map((s) => s.id));
+    const selectedSymbolIds = new Set(selection.filter((s) => s.type === 'symbol').map((s) => s.id));
+    const runIds = new Set(selection.filter((s) => s.type === 'run').map((s) => s.id));
+    // Only free-placed symbols have a position to translate; wall-mounted
+    // symbols and openings are parametric (t along a wall) and aren't
+    // meaningfully "nudged" independent of their host wall.
+    const freeSymbolIds = new Set(
+      plan.symbols.filter((s) => selectedSymbolIds.has(s.id) && !s.wallId).map((s) => s.id),
+    );
+    if (wallIds.size === 0 && labelIds.size === 0 && freeSymbolIds.size === 0 && runIds.size === 0) return;
+
+    get().commitImmediate((p) => ({
+      ...p,
+      walls: p.walls.map((w) =>
+        wallIds.has(w.id)
+          ? { ...w, start: { x: w.start.x + dx, y: w.start.y + dy }, end: { x: w.end.x + dx, y: w.end.y + dy } }
+          : w,
+      ),
+      labels: p.labels.map((l) =>
+        labelIds.has(l.id) ? { ...l, position: { x: l.position.x + dx, y: l.position.y + dy } } : l,
+      ),
+      symbols: p.symbols.map((s) =>
+        freeSymbolIds.has(s.id) ? { ...s, position: { x: s.position.x + dx, y: s.position.y + dy } } : s,
+      ),
+      runs: p.runs.map((r) =>
+        runIds.has(r.id) ? { ...r, points: r.points.map((pt) => ({ x: pt.x + dx, y: pt.y + dy })) } : r,
+      ),
+    }));
+  },
+
+  copySelection: () => {
+    const { selection, plan } = get();
+    const wallIds = new Set(selection.filter((s) => s.type === 'wall').map((s) => s.id));
+    const walls = plan.walls.filter((w) => wallIds.has(w.id));
+    // A copied wall brings its openings and any wall-mounted symbols along.
+    const openings = plan.openings.filter(
+      (o) => wallIds.has(o.wallId) || selection.some((s) => s.type === 'opening' && s.id === o.id),
+    );
+    const labels = plan.labels.filter((l) => selection.some((s) => s.type === 'label' && s.id === l.id));
+    const symbols = plan.symbols.filter(
+      (sym) => (sym.wallId && wallIds.has(sym.wallId)) || selection.some((s) => s.type === 'symbol' && s.id === sym.id),
+    );
+    const runs = plan.runs.filter((r) => selection.some((s) => s.type === 'run' && s.id === r.id));
+
+    if (walls.length + openings.length + labels.length + symbols.length + runs.length === 0) return;
+    set({ clipboard: { walls, openings, labels, symbols, runs } });
+  },
+
+  pasteClipboard: () => {
+    const { clipboard } = get();
+    if (!clipboard) return;
+    const OFFSET = 20; // cm, so a paste never lands exactly on top of the original
+
+    const wallIdMap = new Map<string, string>();
+    const newWalls: Wall[] = clipboard.walls.map((w) => {
+      const newId = uuidv4();
+      wallIdMap.set(w.id, newId);
+      return {
+        ...w,
+        id: newId,
+        start: { x: w.start.x + OFFSET, y: w.start.y + OFFSET },
+        end: { x: w.end.x + OFFSET, y: w.end.y + OFFSET },
+      };
+    });
+    const newOpenings: Opening[] = clipboard.openings.map((o) => ({
+      ...o,
+      id: uuidv4(),
+      wallId: wallIdMap.get(o.wallId) ?? o.wallId,
+    }));
+    const newLabels: Label[] = clipboard.labels.map((l) => ({
+      ...l,
+      id: uuidv4(),
+      position: { x: l.position.x + OFFSET, y: l.position.y + OFFSET },
+    }));
+    const newSymbols: PlacedSymbol[] = clipboard.symbols.map((s) => ({
+      ...s,
+      id: uuidv4(),
+      wallId: s.wallId ? (wallIdMap.get(s.wallId) ?? s.wallId) : undefined,
+      position: s.wallId ? s.position : { x: s.position.x + OFFSET, y: s.position.y + OFFSET },
+    }));
+    const newRuns: Run[] = clipboard.runs.map((r) => ({
+      ...r,
+      id: uuidv4(),
+      points: r.points.map((p) => ({ x: p.x + OFFSET, y: p.y + OFFSET })),
+    }));
+
+    get().commitImmediate((plan) => ({
+      ...plan,
+      walls: [...plan.walls, ...newWalls],
+      openings: [...plan.openings, ...newOpenings],
+      labels: [...plan.labels, ...newLabels],
+      symbols: [...plan.symbols, ...newSymbols],
+      runs: [...plan.runs, ...newRuns],
+    }));
+
+    const newSelection: SelectionEntry[] = [
+      ...newWalls.map((w) => ({ type: 'wall' as const, id: w.id })),
+      ...newLabels.map((l) => ({ type: 'label' as const, id: l.id })),
+      ...newSymbols.map((s) => ({ type: 'symbol' as const, id: s.id })),
+      ...newRuns.map((r) => ({ type: 'run' as const, id: r.id })),
+    ];
+    set({ selection: newSelection });
+  },
+
+  duplicateSelection: () => {
+    get().copySelection();
+    get().pasteClipboard();
+  },
+
   setViewport: (vp) => set({ viewport: vp }),
 
   panBy: (dx, dy) => set((state) => ({ viewport: geomPanBy(state.viewport, dx, dy) })),
@@ -446,6 +580,9 @@ export const usePlanStore = create<PlanStore>((set, get) => ({
   setSnapEnabled: (enabled) => set({ snapEnabled: enabled }),
   setSnapIncrement: (inc) => set({ snapIncrement: inc }),
   setJointStyle: (style) => set({ jointStyle: style }),
+  setUnitSystem: (unit) => set({ unitSystem: unit }),
+  setExportScaleDenominator: (denominator) =>
+    set({ exportScaleDenominator: Math.max(1, Math.round(denominator)) }),
 
   setInteraction: (patch) => set((state) => ({ interaction: { ...state.interaction, ...patch } })),
   resetInteraction: () => set({ interaction: emptyInteraction }),

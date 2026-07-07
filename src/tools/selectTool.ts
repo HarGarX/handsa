@@ -3,7 +3,9 @@ import type { Point } from '../types/plan';
 import { findCoincidentEndpoints, findNearestEndpoint, type EndpointRef } from '../geometry/endpoints';
 import { hitTestLabel, hitTestOpening, hitTestRun, hitTestSymbol, hitTestWall } from '../geometry/hitTest';
 import { clampOpeningT } from '../geometry/opening';
-import { projectPointToSegment } from '../geometry/segment';
+import { resolveSymbolPosition } from '../geometry/placedSymbol';
+import { normalizeRect, pointInRect, type Rect } from '../geometry/rect';
+import { pointAt, projectPointToSegment } from '../geometry/segment';
 import { snapPoint, snapValue } from '../geometry/snapping';
 import type { SelectionEntry } from '../store/types';
 import type { Tool, PointerInfo } from './types';
@@ -17,7 +19,7 @@ const RUN_HIT_SCREEN_PX = 8;
 const DRAG_THRESHOLD_SCREEN_PX = 3;
 const ENDPOINT_MAGNET_SCREEN_PX = 20;
 
-type DragMode = 'none' | 'endpoint' | 'wall' | 'opening' | 'label' | 'symbol' | 'run';
+type DragMode = 'none' | 'endpoint' | 'wall' | 'opening' | 'label' | 'symbol' | 'run' | 'marquee';
 
 class SelectTool implements Tool {
   id = 'select' as const;
@@ -40,6 +42,8 @@ class SelectTool implements Tool {
   private runDragId: string | null = null;
   private runDragOriginalPoints: Point[] = [];
   private runDragStartWorld: Point = { x: 0, y: 0 };
+  private marqueeStartWorld: Point = { x: 0, y: 0 };
+  private marqueeAdditive = false;
 
   private applySelectionOnDown(entry: SelectionEntry, shiftKey: boolean, currentSelection: SelectionEntry[]): void {
     const alreadySelected = currentSelection.some((s) => s.type === entry.type && s.id === entry.id);
@@ -52,6 +56,34 @@ class SelectTool implements Tool {
       usePlanStore.getState().select([entry], false);
       this.pendingSingleSelect = null;
     }
+  }
+
+  /** Entities whose position (any point, for multi-point entities) falls inside `rect`. */
+  private computeMarqueeSelection(rect: Rect, isArchitectural: boolean, activeLayerId: string): SelectionEntry[] {
+    const { plan } = usePlanStore.getState();
+    const entries: SelectionEntry[] = [];
+
+    if (isArchitectural) {
+      for (const w of plan.walls) {
+        if (pointInRect(w.start, rect) || pointInRect(w.end, rect)) entries.push({ type: 'wall', id: w.id });
+      }
+      for (const o of plan.openings) {
+        const wall = plan.walls.find((w) => w.id === o.wallId);
+        if (wall && pointInRect(pointAt(wall.start, wall.end, o.t), rect)) entries.push({ type: 'opening', id: o.id });
+      }
+      for (const l of plan.labels) {
+        if (pointInRect(l.position, rect)) entries.push({ type: 'label', id: l.id });
+      }
+    } else {
+      for (const s of plan.symbols.filter((sym) => sym.layerId === activeLayerId)) {
+        if (pointInRect(resolveSymbolPosition(s, plan.walls), rect)) entries.push({ type: 'symbol', id: s.id });
+      }
+      for (const r of plan.runs.filter((run) => run.layerId === activeLayerId)) {
+        if (r.points.some((p) => pointInRect(p, rect))) entries.push({ type: 'run', id: r.id });
+      }
+    }
+
+    return entries;
   }
 
   onPointerDown(info: PointerInfo): void {
@@ -96,7 +128,9 @@ class SelectTool implements Tool {
         return;
       }
 
-      if (!info.shiftKey) state.clearSelection();
+      this.dragMode = 'marquee';
+      this.marqueeStartWorld = info.world;
+      this.marqueeAdditive = info.shiftKey;
       return;
     }
 
@@ -151,7 +185,9 @@ class SelectTool implements Tool {
       return;
     }
 
-    if (!info.shiftKey) state.clearSelection();
+    this.dragMode = 'marquee';
+    this.marqueeStartWorld = info.world;
+    this.marqueeAdditive = info.shiftKey;
   }
 
   onPointerMove(info: PointerInfo): void {
@@ -165,6 +201,11 @@ class SelectTool implements Tool {
     if (!this.moved || this.dragMode === 'none') return;
 
     const { plan, snapEnabled, snapIncrement, viewport } = state;
+
+    if (this.dragMode === 'marquee') {
+      state.setInteraction({ marquee: { start: this.marqueeStartWorld, end: info.world } });
+      return;
+    }
 
     if (this.dragMode === 'endpoint') {
       const draggedWallIds = new Set(this.endpointRefs.map((r) => r.wallId));
@@ -235,9 +276,22 @@ class SelectTool implements Tool {
     }
   }
 
-  onPointerUp(_info: PointerInfo): void {
+  onPointerUp(info: PointerInfo): void {
     const state = usePlanStore.getState();
-    if (state.pendingBase) {
+
+    if (this.dragMode === 'marquee') {
+      if (this.moved) {
+        const { plan, activeLayerId } = state;
+        const activeLayer = plan.layers.find((l) => l.id === activeLayerId);
+        const isArchitectural = !activeLayer || activeLayer.kind === 'architectural';
+        const rect = normalizeRect(this.marqueeStartWorld, info.world);
+        const entries = this.computeMarqueeSelection(rect, isArchitectural, activeLayerId);
+        state.select(entries, this.marqueeAdditive);
+      } else if (!this.marqueeAdditive) {
+        state.clearSelection();
+      }
+      state.setInteraction({ marquee: null });
+    } else if (state.pendingBase) {
       state.commitTransaction();
     } else if (!this.moved && this.doorClickCandidate) {
       state.cycleDoorState(this.doorClickCandidate);
@@ -245,6 +299,7 @@ class SelectTool implements Tool {
     } else if (this.pendingSingleSelect) {
       state.select([this.pendingSingleSelect], false);
     }
+
     this.dragMode = 'none';
     this.pointerDownScreen = null;
     this.moved = false;
@@ -273,6 +328,7 @@ class SelectTool implements Tool {
 
   onDeactivate(): void {
     this.dragMode = 'none';
+    usePlanStore.getState().setInteraction({ marquee: null });
   }
 }
 

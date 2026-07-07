@@ -9,11 +9,12 @@ interface ZoomControlsProps {
 
 export function ZoomControls({ containerWidth, containerHeight }: ZoomControlsProps) {
   const viewport = usePlanStore((s) => s.viewport);
+  const unitSystem = usePlanStore((s) => s.unitSystem);
   const zoomAtScreenPoint = usePlanStore((s) => s.zoomAtScreenPoint);
   const zoomToFit = usePlanStore((s) => s.zoomToFit);
 
   const center = { x: containerWidth / 2, y: containerHeight / 2 };
-  const scaleBar = computeScaleBar(viewport.scale);
+  const scaleBar = computeScaleBar(viewport.scale, 100, unitSystem);
 
   return (
     <div className="pointer-events-none absolute bottom-3 left-3 flex flex-col gap-2">

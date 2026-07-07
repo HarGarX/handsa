@@ -1,7 +1,8 @@
 import { memo } from 'react';
 import type { Point, Wall } from '../types/plan';
-import type { MeasureDraft, OpeningGhost, RunDraft, SymbolGhost, WallDraft } from '../store/types';
-import { formatAngleDeg, formatLengthM } from '../geometry/format';
+import type { MarqueeDraft, MeasureDraft, OpeningGhost, RunDraft, SymbolGhost, UnitSystem, WallDraft } from '../store/types';
+import { formatAngleDeg, formatLength } from '../geometry/format';
+import { normalizeRect } from '../geometry/rect';
 import { pointAt, unitNormal, wallAngle, wallLength } from '../geometry/segment';
 import { symbolCatalogEntry } from '../lib/symbolCatalog';
 import { SymbolIcon } from './SymbolsLayer';
@@ -12,9 +13,11 @@ interface ToolPreviewLayerProps {
   openingGhost: OpeningGhost | null;
   runDraft: RunDraft | null;
   symbolGhost: SymbolGhost | null;
+  marquee: MarqueeDraft | null;
   walls: Wall[];
   hoveredEndpoint: Point | null;
   scale: number;
+  unit: UnitSystem;
 }
 
 function DimensionText({ x, y, scale, text, color = '#2563eb' }: { x: number; y: number; scale: number; text: string; color?: string }) {
@@ -25,7 +28,7 @@ function DimensionText({ x, y, scale, text, color = '#2563eb' }: { x: number; y:
   );
 }
 
-function WallDraftPreview({ draft, scale }: { draft: WallDraft; scale: number }) {
+function WallDraftPreview({ draft, scale, unit }: { draft: WallDraft; scale: number; unit: UnitSystem }) {
   const allPoints = draft.previewPoint ? [...draft.points, draft.previewPoint] : draft.points;
   if (allPoints.length === 0) return null;
 
@@ -35,7 +38,7 @@ function WallDraftPreview({ draft, scale }: { draft: WallDraft; scale: number })
     const len = wallLength(last, draft.previewPoint);
     const angle = wallAngle(last, draft.previewPoint);
     const mid = pointAt(last, draft.previewPoint, 0.5);
-    previewInfo = { mid, text: `${formatLengthM(len)}  ${formatAngleDeg(angle)}` };
+    previewInfo = { mid, text: `${formatLength(len, unit)}  ${formatAngleDeg(angle)}` };
   }
 
   return (
@@ -68,7 +71,7 @@ function WallDraftPreview({ draft, scale }: { draft: WallDraft; scale: number })
   );
 }
 
-function MeasurePreview({ draft, scale }: { draft: MeasureDraft; scale: number }) {
+function MeasurePreview({ draft, scale, unit }: { draft: MeasureDraft; scale: number; unit: UnitSystem }) {
   if (!draft.start || !draft.end) return null;
   const len = wallLength(draft.start, draft.end);
   const mid = pointAt(draft.start, draft.end, 0.5);
@@ -79,7 +82,7 @@ function MeasurePreview({ draft, scale }: { draft: MeasureDraft; scale: number }
       <line x1={draft.start.x} y1={draft.start.y} x2={draft.end.x} y2={draft.end.y} stroke="#f59e0b" strokeWidth={1.5 / scale} strokeDasharray={`${6 / scale} ${3 / scale}`} />
       <circle cx={draft.start.x} cy={draft.start.y} r={3.5 / scale} fill="#f59e0b" />
       <circle cx={draft.end.x} cy={draft.end.y} r={3.5 / scale} fill="#f59e0b" />
-      <DimensionText x={textPos.x} y={textPos.y} scale={scale} text={formatLengthM(len)} color="#b45309" />
+      <DimensionText x={textPos.x} y={textPos.y} scale={scale} text={formatLength(len, unit)} color="#b45309" />
     </g>
   );
 }
@@ -139,23 +142,43 @@ function SymbolGhostPreview({ ghost, scale }: { ghost: SymbolGhost; scale: numbe
   );
 }
 
+function MarqueePreview({ marquee, scale }: { marquee: MarqueeDraft; scale: number }) {
+  const rect = normalizeRect(marquee.start, marquee.end);
+  return (
+    <rect
+      x={rect.minX}
+      y={rect.minY}
+      width={rect.maxX - rect.minX}
+      height={rect.maxY - rect.minY}
+      fill="#2563eb"
+      fillOpacity={0.08}
+      stroke="#2563eb"
+      strokeWidth={1 / scale}
+      strokeDasharray={`${4 / scale} ${3 / scale}`}
+    />
+  );
+}
+
 function ToolPreviewLayerImpl({
   wallDraft,
   measureDraft,
   openingGhost,
   runDraft,
   symbolGhost,
+  marquee,
   walls,
   hoveredEndpoint,
   scale,
+  unit,
 }: ToolPreviewLayerProps) {
   return (
     <g>
       {openingGhost && <OpeningGhostPreview ghost={openingGhost} walls={walls} scale={scale} />}
       {symbolGhost && <SymbolGhostPreview ghost={symbolGhost} scale={scale} />}
-      {wallDraft && <WallDraftPreview draft={wallDraft} scale={scale} />}
+      {wallDraft && <WallDraftPreview draft={wallDraft} scale={scale} unit={unit} />}
       {runDraft && <RunDraftPreview draft={runDraft} scale={scale} />}
-      {measureDraft && <MeasurePreview draft={measureDraft} scale={scale} />}
+      {measureDraft && <MeasurePreview draft={measureDraft} scale={scale} unit={unit} />}
+      {marquee && <MarqueePreview marquee={marquee} scale={scale} />}
       {hoveredEndpoint && (
         <circle cx={hoveredEndpoint.x} cy={hoveredEndpoint.y} r={6 / scale} fill="none" stroke="#22c55e" strokeWidth={2 / scale} />
       )}

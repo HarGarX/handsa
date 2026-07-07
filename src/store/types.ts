@@ -6,6 +6,8 @@ export type SnapIncrement = 1 | 5 | 10;
 
 export type JointStyle = 'square' | 'round';
 
+export type UnitSystem = 'metric' | 'imperial';
+
 export type SelectableType = 'wall' | 'opening' | 'label' | 'symbol' | 'run';
 
 export interface SelectionEntry {
@@ -48,12 +50,18 @@ export interface SymbolGhost {
   rotation: number;
 }
 
+export interface MarqueeDraft {
+  start: Point;
+  end: Point;
+}
+
 export interface InteractionState {
   wallDraft: WallDraft | null;
   measureDraft: MeasureDraft | null;
   openingGhost: OpeningGhost | null;
   runDraft: RunDraft | null;
   symbolGhost: SymbolGhost | null;
+  marquee: MarqueeDraft | null;
   hoveredEndpoint: Point | null;
   pendingLabel: PendingLabel | null;
   editingLabelId: string | null;

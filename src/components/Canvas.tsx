@@ -27,6 +27,7 @@ export function Canvas() {
   const activeTool = usePlanStore((s) => s.activeTool);
   const activeLayerId = usePlanStore((s) => s.activeLayerId);
   const jointStyle = usePlanStore((s) => s.jointStyle);
+  const unitSystem = usePlanStore((s) => s.unitSystem);
   const selection = usePlanStore((s) => s.selection);
   const interaction = usePlanStore((s) => s.interaction);
   const setInteraction = usePlanStore((s) => s.setInteraction);
@@ -185,6 +186,21 @@ export function Canvas() {
         usePlanStore.getState().redo();
         return;
       }
+      if (mod && e.key.toLowerCase() === 'c') {
+        e.preventDefault();
+        usePlanStore.getState().copySelection();
+        return;
+      }
+      if (mod && e.key.toLowerCase() === 'v') {
+        e.preventDefault();
+        usePlanStore.getState().pasteClipboard();
+        return;
+      }
+      if (mod && e.key.toLowerCase() === 'd') {
+        e.preventDefault();
+        usePlanStore.getState().duplicateSelection();
+        return;
+      }
 
       if (e.key === '?') {
         usePlanStore.getState().setShowShortcutModal(true);
@@ -195,6 +211,21 @@ export function Canvas() {
         const current = usePlanStore.getState().activeTool;
         if (current !== 'select') usePlanStore.getState().setActiveTool('select');
         else usePlanStore.getState().clearSelection();
+      }
+
+      const arrowDeltas: Record<string, [number, number]> = {
+        ArrowUp: [0, -1],
+        ArrowDown: [0, 1],
+        ArrowLeft: [-1, 0],
+        ArrowRight: [1, 0],
+      };
+      if (arrowDeltas[e.key] && usePlanStore.getState().activeTool === 'select') {
+        e.preventDefault();
+        const { snapIncrement, nudgeSelected } = usePlanStore.getState();
+        const step = snapIncrement * (e.shiftKey ? 10 : 1);
+        const [dirX, dirY] = arrowDeltas[e.key]!;
+        nudgeSelected(dirX * step, dirY * step);
+        return;
       }
 
       const toolKeys: Record<string, ReturnType<typeof usePlanStore.getState>['activeTool']> = {
@@ -287,9 +318,15 @@ export function Canvas() {
         <g transform={`translate(${viewport.offsetX} ${viewport.offsetY}) scale(${viewport.scale})`}>
           {showArchitecture && (
             <g opacity={isArchitecturalActive ? 1 : 0.3}>
-              <RoomsLayer walls={plan.walls} scale={viewport.scale} />
+              <RoomsLayer walls={plan.walls} scale={viewport.scale} unit={unitSystem} />
               <JointsLayer walls={plan.walls} selectedWallIds={selectedWallIds} jointStyle={jointStyle} />
-              <WallsLayer walls={plan.walls} openings={plan.openings} selectedIds={selectedWallIds} scale={viewport.scale} />
+              <WallsLayer
+                walls={plan.walls}
+                openings={plan.openings}
+                selectedIds={selectedWallIds}
+                scale={viewport.scale}
+                unit={unitSystem}
+              />
               <OpeningsLayer walls={plan.walls} openings={plan.openings} selectedIds={selectedOpeningIds} scale={viewport.scale} />
               <LabelsLayer labels={plan.labels} selectedIds={selectedLabelIds} />
             </g>
@@ -320,9 +357,11 @@ export function Canvas() {
             openingGhost={interaction.openingGhost}
             runDraft={interaction.runDraft}
             symbolGhost={interaction.symbolGhost}
+            marquee={interaction.marquee}
             walls={plan.walls}
             hoveredEndpoint={interaction.hoveredEndpoint}
             scale={viewport.scale}
+            unit={unitSystem}
           />
         </g>
       </svg>

@@ -1,15 +1,17 @@
 import { memo, useMemo } from 'react';
 import type { Wall } from '../types/plan';
+import type { UnitSystem } from '../store/types';
 import { detectRooms } from '../geometry/rooms';
-import { formatAreaM2 } from '../geometry/format';
+import { formatArea } from '../geometry/format';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 
 interface RoomsLayerProps {
   walls: Wall[];
   scale: number;
+  unit?: UnitSystem;
 }
 
-function RoomsLayerImpl({ walls, scale }: RoomsLayerProps) {
+function RoomsLayerImpl({ walls, scale, unit = 'metric' }: RoomsLayerProps) {
   const debouncedWalls = useDebouncedValue(walls, 150);
   const rooms = useMemo(() => detectRooms(debouncedWalls), [debouncedWalls]);
 
@@ -32,7 +34,7 @@ function RoomsLayerImpl({ walls, scale }: RoomsLayerProps) {
             dominantBaseline="middle"
             style={{ userSelect: 'none' }}
           >
-            {formatAreaM2(room.areaM2)}
+            {formatArea(room.areaM2, unit)}
           </text>
         </g>
       ))}

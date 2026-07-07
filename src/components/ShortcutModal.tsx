@@ -14,12 +14,17 @@ const SHORTCUTS: [string, string][] = [
   ['Symbol tool (non-architectural layers)', 'Click the icon to open a fixture picker, then click the canvas to place'],
   ['Run tool (non-architectural layers)', 'Click to draw a circuit/pipe line; Enter or double-click finishes, Escape cancels'],
   ['Shift + click', 'Add/remove from selection'],
+  ['Drag on empty canvas (select tool)', 'Rubber-band select everything inside the box; hold Shift to add/remove from the current selection'],
+  ['Arrow keys', 'Nudge the selection by one snap increment (×10 with Shift)'],
   ['Delete / Backspace', 'Delete selected items'],
   ['Escape', 'Cancel current tool / clear selection'],
   ['Space + drag, or middle-drag', 'Pan the canvas'],
   ['Scroll wheel', 'Zoom towards cursor'],
   ['Ctrl/Cmd + Z', 'Undo'],
   ['Ctrl/Cmd + Shift + Z (or Ctrl+Y)', 'Redo'],
+  ['Ctrl/Cmd + C', 'Copy the current selection'],
+  ['Ctrl/Cmd + V', 'Paste (offset from the original)'],
+  ['Ctrl/Cmd + D', 'Duplicate the current selection'],
   ['?', 'Show this help'],
 ];
 

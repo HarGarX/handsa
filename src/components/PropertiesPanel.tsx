@@ -3,6 +3,7 @@ import { PanelRightClose, PanelRightOpen } from 'lucide-react';
 import { usePlanStore } from '../store/usePlanStore';
 import type { Hinge, RunType, SymbolType, Swing } from '../types/plan';
 import { unitDirection, wallLength } from '../geometry/segment';
+import { cmToFieldValue, fieldValueToCm, lengthFieldSuffix } from '../geometry/format';
 import { RUN_TYPE_LABELS, symbolCatalogEntry, symbolCatalogFor } from '../lib/symbolCatalog';
 
 function NumberField({
@@ -58,6 +59,35 @@ function NumberField({
   );
 }
 
+/** Wraps NumberField for cm-stored values, displaying/accepting them in the active unit system. */
+function LengthField({
+  label,
+  valueCm,
+  minCm,
+  maxCm,
+  onCommitCm,
+}: {
+  label: string;
+  valueCm: number;
+  minCm?: number;
+  maxCm?: number;
+  onCommitCm: (cm: number) => void;
+}) {
+  const unit = usePlanStore((s) => s.unitSystem);
+  const displayValue = cmToFieldValue(valueCm, unit);
+  return (
+    <NumberField
+      key={unit}
+      label={`${label} (${lengthFieldSuffix(unit)})`}
+      value={unit === 'metric' ? Math.round(displayValue) : Math.round(displayValue * 100) / 100}
+      min={minCm !== undefined ? cmToFieldValue(minCm, unit) : undefined}
+      max={maxCm !== undefined ? cmToFieldValue(maxCm, unit) : undefined}
+      step={unit === 'metric' ? 1 : 0.1}
+      onCommit={(v) => onCommitCm(fieldValueToCm(v, unit))}
+    />
+  );
+}
+
 function TextField({ label, value, onCommit }: { label: string; value: string; onCommit: (value: string) => void }) {
   const [text, setText] = useState(value);
   return (
@@ -107,7 +137,7 @@ function WallProperties({ wallId }: { wallId: string }) {
   return (
     <div key={wallId} className="flex flex-col gap-3">
       <SectionTitle>Wall</SectionTitle>
-      <NumberField label="Length (cm)" value={Math.round(length)} min={1} max={5000} onCommit={setLength} />
+      <LengthField label="Length" valueCm={length} minCm={1} maxCm={5000} onCommitCm={setLength} />
       <label className="flex flex-col gap-1 text-xs text-gray-500">
         Thickness (cm)
         <select
@@ -153,7 +183,7 @@ function OpeningProperties({ openingId }: { openingId: string }) {
   return (
     <div key={openingId} className="flex flex-col gap-3">
       <SectionTitle>{opening.type === 'door' ? 'Door' : 'Window'}</SectionTitle>
-      <NumberField label="Width (cm)" value={opening.width} min={30} max={400} onCommit={setWidth} />
+      <LengthField label="Width" valueCm={opening.width} minCm={30} maxCm={400} onCommitCm={setWidth} />
       {opening.type === 'door' && (
         <>
           <div className="flex flex-col gap-1 text-xs text-gray-500">

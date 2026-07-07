@@ -12,3 +12,4 @@ export * from './hitTest';
 export * from './wallGraph';
 export * from './joints';
 export * from './placedSymbol';
+export * from './rect';

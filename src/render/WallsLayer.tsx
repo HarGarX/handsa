@@ -1,7 +1,8 @@
 import { memo } from 'react';
 import type { Opening, Wall } from '../types/plan';
+import type { UnitSystem } from '../store/types';
 import { computeWallSegments } from '../geometry/wallShape';
-import { formatLengthM } from '../geometry/format';
+import { formatLength } from '../geometry/format';
 import { wallAngle, wallLength, unitNormal, pointAt } from '../geometry/segment';
 
 interface WallViewProps {
@@ -10,12 +11,13 @@ interface WallViewProps {
   selected: boolean;
   scale: number;
   showDimension?: boolean;
+  unit: UnitSystem;
 }
 
 const WALL_FILL = '#374151';
 const WALL_FILL_SELECTED = '#1d4ed8';
 
-function WallViewImpl({ wall, openings, selected, scale, showDimension }: WallViewProps) {
+function WallViewImpl({ wall, openings, selected, scale, showDimension, unit }: WallViewProps) {
   const segments = computeWallSegments(wall, openings);
   const len = wallLength(wall.start, wall.end);
   const angle = wallAngle(wall.start, wall.end);
@@ -30,7 +32,7 @@ function WallViewImpl({ wall, openings, selected, scale, showDimension }: WallVi
     let rotationDeg = (angle * 180) / Math.PI;
     // Keep text upright/readable rather than upside-down.
     if (rotationDeg > 90 || rotationDeg < -90) rotationDeg += 180;
-    dimensionText = { x: tx, y: ty, rotationDeg, text: formatLengthM(len) };
+    dimensionText = { x: tx, y: ty, rotationDeg, text: formatLength(len, unit) };
   }
 
   return (
@@ -78,9 +80,10 @@ interface WallsLayerProps {
   selectedIds: Set<string>;
   scale: number;
   showAllDimensions?: boolean;
+  unit?: UnitSystem;
 }
 
-function WallsLayerImpl({ walls, openings, selectedIds, scale, showAllDimensions }: WallsLayerProps) {
+function WallsLayerImpl({ walls, openings, selectedIds, scale, showAllDimensions, unit = 'metric' }: WallsLayerProps) {
   return (
     <g>
       {walls.map((wall) => (
@@ -91,6 +94,7 @@ function WallsLayerImpl({ walls, openings, selectedIds, scale, showAllDimensions
           selected={selectedIds.has(wall.id)}
           scale={scale}
           showDimension={showAllDimensions ? true : undefined}
+          unit={unit}
         />
       ))}
     </g>

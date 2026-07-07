@@ -197,6 +197,48 @@ along the nearest wall exactly like doors/windows do; free-placed types
 Deleting a wall cascades to any symbols mounted on it, same as it does for
 openings.
 
+### Editing conveniences (units, scale, marquee, nudge, copy/paste)
+
+- **Display units** (`unitSystem`, a store-level view preference like snap
+  settings, not part of `Plan`): metric shows meters/m² as before; imperial
+  shows feet-inches (`formatLengthFtIn`) for canvas dimension text and
+  square feet for room areas. Editable length fields (wall length, opening
+  width) convert through `cmToFieldValue`/`fieldValueToCm` to a single
+  decimal-feet number for imperial — simpler than a compound feet+inches
+  input widget, at the cost of not matching the feet-inches *display* format
+  exactly. Wall thickness and label font size stay in cm regardless of the
+  toggle: they're small building-material/text-size values that don't map
+  to "nice" feet numbers the way a wall length does.
+- **PNG export drawing scale** (`exportScaleDenominator`, 1:50/1:100/1:200/
+  custom): unlike the live canvas (always true-to-life), the exported image's
+  pixel dimensions are derived from the plan's real-world extent times a
+  px-per-cm ratio calibrated to the chosen scale — smaller ratio (1:50) =
+  bigger, more detailed image; larger ratio (1:200) = smaller image, same as
+  real architectural scale conventions. This is deliberately *not* a
+  physical-print-DPI calculation (see the comment on `BASE_PX_PER_CM_AT_1_100`
+  in `exportImport.tsx`) since the output is a PNG for on-screen viewing, not
+  a calibrated paper size; Phase 4's PDF export is where that distinction
+  will actually matter. Output is clamped to 4000px on a side so a huge plan
+  at a fine scale can't hang the browser.
+- **Rubber-band (marquee) multi-select**: dragging on empty canvas with the
+  Select tool starts a marquee (`geometry/rect.ts#pointInRect`, "any point
+  inside" rather than "fully enclosed," so a wall just needs one endpoint in
+  the box). Scoped to whichever layer is active, same as click-select: walls/
+  openings/labels on the Architectural tab, symbols/runs on the others.
+  Shift+drag reuses the existing shift-click *toggle* semantics rather than
+  a separate "always add" mode, for consistency with the rest of the tool.
+- **Arrow-key nudge**: moves the current selection by one snap increment
+  (×10 with Shift). Only applies to entities with a free-standing position —
+  walls, labels, runs, and free-placed symbols — not openings or wall-mounted
+  symbols, which are parametric (a `t` along their wall) and have no
+  independent position to nudge.
+- **Copy / paste / duplicate** (Ctrl/Cmd+C/V/D): an in-memory clipboard, not
+  the OS clipboard (no permissions prompt, and it round-trips the exact
+  entity shapes rather than serializing through a text format). Copying a
+  wall brings its openings and any wall-mounted symbols along, remapped to
+  the new wall's id on paste; paste/duplicate offsets everything by 20cm so
+  it never lands exactly on top of the original.
+
 ### Undo/redo & persistence
 
 The store exposes a small transaction API: `updateLive` mutates `plan`
@@ -225,7 +267,6 @@ you actually cared about.
   coincident-endpoint tracking + optional magnetism to other walls). This
   matches the acceptance criteria, which test endpoint-dragging for joint
   propagation.
-- **No rubber-band (marquee) multi-select** — only click / shift-click.
 - **Label editing** is inline only at creation time; renaming an existing
   label's text/font-size afterwards is done via the Properties panel.
 - **PNG export** re-renders a dedicated static SVG (grid off, all wall
@@ -250,6 +291,20 @@ you actually cared about.
 - **No point-level editing of a run's polyline** after it's drawn — Select
   lets you translate or delete the whole run, but not drag an individual
   vertex.
+- **Imperial editable fields use decimal feet, not feet+inches** — e.g. a
+  wall length shows as "23.62" (ft) to edit, even though the same length
+  displays as `23' 7"` on the canvas. A compound feet+inches input widget
+  would match the display format exactly; decimal feet was the pragmatic
+  choice to keep it a single numeric `<input>`.
+- **Marquee-select uses "any point inside," not "fully enclosed"** — a wall
+  is selected if either endpoint is in the drag box, even if the rest of the
+  wall extends outside it. More forgiving for a rough drag; CAD tools that
+  distinguish left-to-right ("fully enclosed") vs. right-to-left ("crossing")
+  drags offer more precision, but add a mode most users don't reach for.
+- **Copy/paste is in-memory only**, not the OS clipboard — paste only works
+  within the same browser tab/session, not across tabs or after a reload.
+  Trades that off for a simpler, permission-free implementation and copying
+  the exact entity shapes instead of round-tripping through a text format.
 
 ## Roadmap
 
@@ -259,43 +314,31 @@ the codebase, not absolute.
 
 ### Phase 1 — Polish the core drawing experience
 
-Small, high-value fixes to the single-layer (architectural) editor before
-layering more disciplines on top of it.
+✅ **Shipped**, except the one deliberately-deferred sub-item noted below. See
+"Wall joints" and "Editing conveniences" above for how each piece works.
 
-- **Wall joint fill (square or round), so joints stop showing gaps/notches.**
-  Two tiers:
-  - ✅ *v1 — join caps (shipped):* `geometry/joints.ts` finds every wall-graph
-    node where 2+ walls converge and draws a filled cap (square or circle,
-    toggled in the top bar) sized to `maxConnectingThickness / 2`, which is
-    always enough to cover the gap at any angle (see "Wall joints" above).
-    Covers simple corners, T-junctions, and 4-way crossings uniformly.
-  - *v2 — true mitered/filleted geometry (not yet built):* extend or trim
-    each wall's offset edges to meet exactly at the joint (SVG
-    `stroke-linejoin: miter` or `round`, computed manually since we don't use
-    stroke-based rendering). Sharper and more "correct" for two-wall bends at
-    odd angles, but doesn't generalize as cleanly to T/X junctions, so it'd
-    be a refinement layered on top of v1's caps rather than a replacement —
-    mitered edges where exactly 2 walls meet, fall back to a cap where 3+
-    meet. Purely a rendering upgrade; v1 already ships correct, gap-free
-    joints, so this is a "nice to have," not a blocker for anything else.
-- **Unit system + drawing scale setting.** Two related but distinct controls:
-  - A **display unit toggle** (metric cm/m ⟷ imperial in/ft) purely for
-    input/display formatting — `Plan` keeps storing centimeters internally
-    (no data model change), only `geometry/format.ts` gets a second set of
-    formatters and the numeric property fields parse/format in the active
-    unit.
-  - A **print/drawing scale** (1:50, 1:100, 1:200, custom) that only affects
-    PNG/PDF export sizing and the exported title block's scale annotation —
-    doesn't touch the live canvas, which always shows a true-to-life scale
-    bar.
-- **Rubber-band (marquee) multi-select** — drag on empty canvas to
-  box-select; extends the existing `SelectionEntry[]` selection model, no
-  data model change.
-- **Arrow-key nudge** for the current selection (grid increment per press,
-  ×10 with Shift) — precision editing without the mouse.
-- **Copy / paste / duplicate** for the current selection (walls carry their
-  openings along; labels and openings duplicate directly).
-- **Mitered wall corners** — folded into the join-fill work above.
+- **Wall joint fill (square or round)**, so joints stop showing gaps/notches.
+  - ✅ Join caps: `geometry/joints.ts` finds every wall-graph node where 2+
+    walls converge and draws a filled cap sized to `maxConnectingThickness /
+    2`, always enough to cover the gap at any angle. Covers simple corners,
+    T-junctions, and 4-way crossings uniformly.
+  - *Still open — true mitered/filleted geometry:* extend or trim each
+    wall's offset edges to meet exactly at the joint, rather than filling
+    with a cap. Sharper for two-wall bends at odd angles, but doesn't
+    generalize as cleanly to T/X junctions, so it'd be a refinement layered
+    on top of the caps rather than a replacement. Purely a rendering
+    upgrade — the caps already ship correct, gap-free joints — so this is
+    the one remaining "nice to have," not a blocker for anything else.
+- ✅ **Unit system + drawing scale setting** — a display unit toggle
+  (metric ⟷ imperial) purely for input/display formatting, and a separate
+  PNG export drawing scale (1:50/1:100/1:200/custom) that only affects
+  export sizing, not the live canvas.
+- ✅ **Rubber-band (marquee) multi-select** — drag on empty canvas to
+  box-select, scoped to the active layer.
+- ✅ **Arrow-key nudge** for the current selection (snap increment per
+  press, ×10 with Shift).
+- ✅ **Copy / paste / duplicate** for the current selection (walls carry
+  their openings and wall-mounted symbols along).
 
 ### Phase 2 — Multi-discipline layers (electrical, plumbing, lighting/HVAC)
 
