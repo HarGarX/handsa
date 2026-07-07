@@ -9,6 +9,8 @@ import { WallsLayer } from '../render/WallsLayer';
 import { OpeningsLayer } from '../render/OpeningsLayer';
 import { LabelsLayer } from '../render/LabelsLayer';
 import { RoomsLayer } from '../render/RoomsLayer';
+import { SymbolsLayer } from '../render/SymbolsLayer';
+import { RunsLayer } from '../render/RunsLayer';
 import { SelectionOverlay } from '../render/SelectionOverlay';
 import { ToolPreviewLayer } from '../render/ToolPreviewLayer';
 import { LabelEditorOverlay } from './LabelEditorOverlay';
@@ -23,6 +25,7 @@ export function Canvas() {
   const plan = usePlanStore((s) => s.plan);
   const viewport = usePlanStore((s) => s.viewport);
   const activeTool = usePlanStore((s) => s.activeTool);
+  const activeLayerId = usePlanStore((s) => s.activeLayerId);
   const jointStyle = usePlanStore((s) => s.jointStyle);
   const selection = usePlanStore((s) => s.selection);
   const interaction = usePlanStore((s) => s.interaction);
@@ -237,10 +240,29 @@ export function Canvas() {
     () => new Set(selection.filter((s) => s.type === 'label').map((s) => s.id)),
     [selection],
   );
+  const selectedSymbolIds = useMemo(
+    () => new Set(selection.filter((s) => s.type === 'symbol').map((s) => s.id)),
+    [selection],
+  );
+  const selectedRunIds = useMemo(
+    () => new Set(selection.filter((s) => s.type === 'run').map((s) => s.id)),
+    [selection],
+  );
   const selectedWalls = useMemo(
     () => plan.walls.filter((w) => selectedWallIds.has(w.id)),
     [plan.walls, selectedWallIds],
   );
+
+  const isArchitecturalActive = useMemo(() => {
+    const layer = plan.layers.find((l) => l.id === activeLayerId);
+    return !layer || layer.kind === 'architectural';
+  }, [plan.layers, activeLayerId]);
+
+  // A layer being the active one always renders (you need to see what you're
+  // editing), independent of its own `visible` flag; that flag only controls
+  // whether an *inactive* layer shows up as a dimmed reference underlay.
+  const architecturalLayer = plan.layers.find((l) => l.kind === 'architectural');
+  const showArchitecture = isArchitecturalActive || (architecturalLayer?.visible ?? true);
 
   let cursorClass = 'cursor-default';
   if (interaction.isPanning) cursorClass = 'cursor-grabbing';
@@ -263,16 +285,41 @@ export function Canvas() {
         <rect x={0} y={0} width={size.width} height={size.height} fill="#f3f4f6" />
         <GridLayer viewport={viewport} width={size.width} height={size.height} />
         <g transform={`translate(${viewport.offsetX} ${viewport.offsetY}) scale(${viewport.scale})`}>
-          <RoomsLayer walls={plan.walls} scale={viewport.scale} />
-          <JointsLayer walls={plan.walls} selectedWallIds={selectedWallIds} jointStyle={jointStyle} />
-          <WallsLayer walls={plan.walls} openings={plan.openings} selectedIds={selectedWallIds} scale={viewport.scale} />
-          <OpeningsLayer walls={plan.walls} openings={plan.openings} selectedIds={selectedOpeningIds} scale={viewport.scale} />
-          <LabelsLayer labels={plan.labels} selectedIds={selectedLabelIds} />
+          {showArchitecture && (
+            <g opacity={isArchitecturalActive ? 1 : 0.3}>
+              <RoomsLayer walls={plan.walls} scale={viewport.scale} />
+              <JointsLayer walls={plan.walls} selectedWallIds={selectedWallIds} jointStyle={jointStyle} />
+              <WallsLayer walls={plan.walls} openings={plan.openings} selectedIds={selectedWallIds} scale={viewport.scale} />
+              <OpeningsLayer walls={plan.walls} openings={plan.openings} selectedIds={selectedOpeningIds} scale={viewport.scale} />
+              <LabelsLayer labels={plan.labels} selectedIds={selectedLabelIds} />
+            </g>
+          )}
+          {plan.layers
+            .filter((l) => l.kind !== 'architectural' && (l.visible || l.id === activeLayerId))
+            .map((l) => (
+              <g key={l.id} opacity={l.id === activeLayerId ? 1 : 0.3}>
+                <SymbolsLayer
+                  symbols={plan.symbols.filter((s) => s.layerId === l.id)}
+                  walls={plan.walls}
+                  selectedIds={selectedSymbolIds}
+                  color={l.color}
+                  scale={viewport.scale}
+                />
+                <RunsLayer
+                  runs={plan.runs.filter((r) => r.layerId === l.id)}
+                  selectedIds={selectedRunIds}
+                  color={l.color}
+                  scale={viewport.scale}
+                />
+              </g>
+            ))}
           <SelectionOverlay selectedWalls={selectedWalls} scale={viewport.scale} />
           <ToolPreviewLayer
             wallDraft={interaction.wallDraft}
             measureDraft={interaction.measureDraft}
             openingGhost={interaction.openingGhost}
+            runDraft={interaction.runDraft}
+            symbolGhost={interaction.symbolGhost}
             walls={plan.walls}
             hoveredEndpoint={interaction.hoveredEndpoint}
             scale={viewport.scale}

@@ -1,10 +1,11 @@
 import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
-import type { Label, Opening, Plan, Point, Wall } from '../types/plan';
-import { createEmptyPlan } from '../types/plan';
+import type { Label, Opening, PlacedSymbol, Plan, Point, Run, SymbolType, Wall } from '../types/plan';
+import { ARCHITECTURAL_LAYER_ID, createEmptyPlan } from '../types/plan';
 import type { Viewport } from '../geometry/viewport';
 import { clampScale, zoomAt as geomZoomAt, panBy as geomPanBy, fitToPoints } from '../geometry/viewport';
 import type { EndpointRef } from '../geometry/endpoints';
+import { symbolCatalogFor } from '../lib/symbolCatalog';
 import type { InteractionState, JointStyle, SelectionEntry, SnapIncrement, ToolId } from './types';
 import {
   loadActivePlanId,
@@ -53,6 +54,8 @@ const emptyInteraction: InteractionState = {
   wallDraft: null,
   measureDraft: null,
   openingGhost: null,
+  runDraft: null,
+  symbolGhost: null,
   hoveredEndpoint: null,
   pendingLabel: null,
   editingLabelId: null,
@@ -70,6 +73,8 @@ export interface PlanStore {
   selection: SelectionEntry[];
   viewport: Viewport;
   activeTool: ToolId;
+  activeLayerId: string;
+  activeSymbolType: SymbolType | null;
   snapEnabled: boolean;
   snapIncrement: SnapIncrement;
   jointStyle: JointStyle;
@@ -104,6 +109,19 @@ export interface PlanStore {
   // --- labels ---
   addLabel: (label: Label) => void;
   updateLabelLive: (id: string, patch: Partial<Label>) => void;
+
+  // --- symbols (electrical/plumbing/lighting-power-hvac fixtures) ---
+  addSymbol: (symbol: PlacedSymbol) => void;
+  updateSymbolLive: (id: string, patch: Partial<PlacedSymbol>) => void;
+
+  // --- runs (circuit / pipe polylines) ---
+  addRun: (run: Run) => void;
+  updateRunLive: (id: string, patch: Partial<Run>) => void;
+
+  // --- layers ---
+  setActiveLayer: (layerId: string) => void;
+  setActiveSymbolType: (type: SymbolType | null) => void;
+  setLayerVisibility: (layerId: string, visible: boolean) => void;
 
   // --- plan meta ---
   renamePlan: (name: string) => void;
@@ -155,6 +173,8 @@ export const usePlanStore = create<PlanStore>((set, get) => ({
   selection: [],
   viewport: { offsetX: 0, offsetY: 0, scale: 0.5 },
   activeTool: 'select',
+  activeLayerId: ARCHITECTURAL_LAYER_ID,
+  activeSymbolType: null,
   snapEnabled: true,
   snapIncrement: 5,
   jointStyle: 'square',
@@ -259,13 +279,25 @@ export const usePlanStore = create<PlanStore>((set, get) => ({
     const wallIds = new Set(entries.filter((e) => e.type === 'wall').map((e) => e.id));
     const openingIds = new Set(entries.filter((e) => e.type === 'opening').map((e) => e.id));
     const labelIds = new Set(entries.filter((e) => e.type === 'label').map((e) => e.id));
-    if (wallIds.size === 0 && openingIds.size === 0 && labelIds.size === 0) return;
+    const symbolIds = new Set(entries.filter((e) => e.type === 'symbol').map((e) => e.id));
+    const runIds = new Set(entries.filter((e) => e.type === 'run').map((e) => e.id));
+    if (
+      wallIds.size === 0 &&
+      openingIds.size === 0 &&
+      labelIds.size === 0 &&
+      symbolIds.size === 0 &&
+      runIds.size === 0
+    ) {
+      return;
+    }
     get().commitImmediate((plan) => ({
       ...plan,
       walls: plan.walls.filter((w) => !wallIds.has(w.id)),
-      // deleting a wall deletes its openings too
+      // deleting a wall deletes its openings and any wall-mounted symbols too
       openings: plan.openings.filter((o) => !openingIds.has(o.id) && !wallIds.has(o.wallId)),
       labels: plan.labels.filter((l) => !labelIds.has(l.id)),
+      symbols: plan.symbols.filter((s) => !symbolIds.has(s.id) && !(s.wallId && wallIds.has(s.wallId))),
+      runs: plan.runs.filter((r) => !runIds.has(r.id)),
     }));
     set({ selection: [] });
   },
@@ -306,6 +338,56 @@ export const usePlanStore = create<PlanStore>((set, get) => ({
       ...plan,
       labels: plan.labels.map((l) => (l.id === id ? { ...l, ...patch } : l)),
     }));
+  },
+
+  addSymbol: (symbol) => {
+    get().commitImmediate((plan) => ({ ...plan, symbols: [...plan.symbols, symbol] }));
+  },
+
+  updateSymbolLive: (id, patch) => {
+    get().updateLive((plan) => ({
+      ...plan,
+      symbols: plan.symbols.map((s) => (s.id === id ? { ...s, ...patch } : s)),
+    }));
+  },
+
+  addRun: (run) => {
+    get().commitImmediate((plan) => ({ ...plan, runs: [...plan.runs, run] }));
+  },
+
+  updateRunLive: (id, patch) => {
+    get().updateLive((plan) => ({
+      ...plan,
+      runs: plan.runs.map((r) => (r.id === id ? { ...r, ...patch } : r)),
+    }));
+  },
+
+  setActiveLayer: (layerId) => {
+    get().cancelTransaction();
+    const { plan } = get();
+    const layer = plan.layers.find((l) => l.id === layerId);
+    const catalog = symbolCatalogFor(layer?.kind ?? 'architectural');
+    set({
+      activeLayerId: layerId,
+      activeTool: 'select',
+      activeSymbolType: catalog.length > 0 ? catalog[0]!.type : null,
+      interaction: emptyInteraction,
+      selection: [],
+    });
+  },
+
+  setActiveSymbolType: (type) => set({ activeSymbolType: type }),
+
+  setLayerVisibility: (layerId, visible) => {
+    const { plan } = get();
+    const updated = touchedNow({
+      ...plan,
+      layers: plan.layers.map((l) => (l.id === layerId ? { ...l, visible } : l)),
+    });
+    // Not pushed to undo history: toggling visibility is a view preference,
+    // not a content edit, even though it's persisted on the plan.
+    set({ plan: updated });
+    scheduleAutosave(updated);
   },
 
   renamePlan: (name) => {
@@ -385,6 +467,9 @@ export const usePlanStore = create<PlanStore>((set, get) => ({
       future: [],
       pendingBase: null,
       selection: [],
+      activeLayerId: ARCHITECTURAL_LAYER_ID,
+      activeTool: 'select',
+      activeSymbolType: null,
       plansIndex: loadPlansIndex(),
       showPlansModal: false,
     });
@@ -396,7 +481,17 @@ export const usePlanStore = create<PlanStore>((set, get) => ({
     const copy: Plan = { ...deepClonePlan(plan), id: uuidv4(), name: `${plan.name} (copy)`, createdAt: now, updatedAt: now };
     savePlan(copy);
     saveActivePlanId(copy.id);
-    set({ plan: copy, past: [], future: [], pendingBase: null, selection: [], plansIndex: loadPlansIndex() });
+    set({
+      plan: copy,
+      past: [],
+      future: [],
+      pendingBase: null,
+      selection: [],
+      activeLayerId: ARCHITECTURAL_LAYER_ID,
+      activeTool: 'select',
+      activeSymbolType: null,
+      plansIndex: loadPlansIndex(),
+    });
   },
 
   switchPlan: (id) => {
@@ -409,6 +504,9 @@ export const usePlanStore = create<PlanStore>((set, get) => ({
       future: [],
       pendingBase: null,
       selection: [],
+      activeLayerId: ARCHITECTURAL_LAYER_ID,
+      activeTool: 'select',
+      activeSymbolType: null,
       showPlansModal: false,
     });
   },
@@ -424,14 +522,34 @@ export const usePlanStore = create<PlanStore>((set, get) => ({
         const next = loadPlan(nextSummary.id);
         if (next) {
           saveActivePlanId(next.id);
-          set({ plan: next, past: [], future: [], pendingBase: null, selection: [], plansIndex: loadPlansIndex() });
+          set({
+            plan: next,
+            past: [],
+            future: [],
+            pendingBase: null,
+            selection: [],
+            activeLayerId: ARCHITECTURAL_LAYER_ID,
+            activeTool: 'select',
+            activeSymbolType: null,
+            plansIndex: loadPlansIndex(),
+          });
           return;
         }
       }
       const fresh = createEmptyPlan(uuidv4(), 'Untitled Plan');
       savePlan(fresh);
       saveActivePlanId(fresh.id);
-      set({ plan: fresh, past: [], future: [], pendingBase: null, selection: [], plansIndex: loadPlansIndex() });
+      set({
+        plan: fresh,
+        past: [],
+        future: [],
+        pendingBase: null,
+        selection: [],
+        activeLayerId: ARCHITECTURAL_LAYER_ID,
+        activeTool: 'select',
+        activeSymbolType: null,
+        plansIndex: loadPlansIndex(),
+      });
       return;
     }
     set({ plansIndex: loadPlansIndex() });
@@ -446,6 +564,9 @@ export const usePlanStore = create<PlanStore>((set, get) => ({
       future: [],
       pendingBase: null,
       selection: [],
+      activeLayerId: ARCHITECTURAL_LAYER_ID,
+      activeTool: 'select',
+      activeSymbolType: null,
       plansIndex: loadPlansIndex(),
     });
   },

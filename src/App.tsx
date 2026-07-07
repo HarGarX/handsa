@@ -1,4 +1,5 @@
 import { TopBar } from './components/TopBar';
+import { LayerBar } from './components/LayerBar';
 import { Toolbar } from './components/Toolbar';
 import { Canvas } from './components/Canvas';
 import { PropertiesPanel } from './components/PropertiesPanel';
@@ -10,6 +11,7 @@ function App() {
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-gray-100">
       <TopBar />
+      <LayerBar />
       <div className="flex min-h-0 flex-1">
         <Toolbar />
         <Canvas />

@@ -1,6 +1,8 @@
-import type { Label, Opening, Point, Wall } from '../types/plan';
+import type { Label, Opening, PlacedSymbol, Point, Run, Wall } from '../types/plan';
 import { openingExtent } from './opening';
 import { projectPointToSegment } from './segment';
+import { resolveSymbolPosition } from './placedSymbol';
+import { symbolCatalogEntry } from '../lib/symbolCatalog';
 import type { WallEnd } from './endpoints';
 
 /** Finds the wall whose body (thickness + tolerance) contains `point`, nearest first. */
@@ -61,6 +63,38 @@ export function hitTestLabel(labels: Label[], point: Point, toleranceCm: number)
     if (withinX && withinY) return l;
   }
   return null;
+}
+
+/** Finds the placed symbol under `point` (within its footprint + tolerance), nearest first. */
+export function hitTestSymbol(symbols: PlacedSymbol[], walls: Wall[], point: Point, toleranceCm: number): PlacedSymbol | null {
+  let best: PlacedSymbol | null = null;
+  let bestDist = Infinity;
+  for (const s of symbols) {
+    const pos = resolveSymbolPosition(s, walls);
+    const limit = symbolCatalogEntry(s.type).size / 2 + toleranceCm;
+    const d = Math.hypot(pos.x - point.x, pos.y - point.y);
+    if (d <= limit && d < bestDist) {
+      bestDist = d;
+      best = s;
+    }
+  }
+  return best;
+}
+
+/** Finds the run whose polyline passes within `toleranceCm` of `point`, nearest first. */
+export function hitTestRun(runs: Run[], point: Point, toleranceCm: number): Run | null {
+  let best: Run | null = null;
+  let bestDist = toleranceCm;
+  for (const r of runs) {
+    for (let i = 0; i < r.points.length - 1; i++) {
+      const proj = projectPointToSegment(point, r.points[i]!, r.points[i + 1]!);
+      if (proj.distance <= bestDist) {
+        bestDist = proj.distance;
+        best = r;
+      }
+    }
+  }
+  return best;
 }
 
 /** Finds the nearest wall endpoint handle to `point` within `radiusCm`, for drag-handle hit testing. */

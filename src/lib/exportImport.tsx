@@ -1,13 +1,15 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { v4 as uuidv4 } from 'uuid';
 import type { Plan } from '../types/plan';
-import { isValidPlanShape } from '../types/plan';
+import { isValidPlanShape, normalizePlan } from '../types/plan';
 import { fitToPoints } from '../geometry/viewport';
 import { RoomsLayer } from '../render/RoomsLayer';
 import { JointsLayer } from '../render/JointsLayer';
 import { WallsLayer } from '../render/WallsLayer';
 import { OpeningsLayer } from '../render/OpeningsLayer';
 import { LabelsLayer } from '../render/LabelsLayer';
+import { SymbolsLayer } from '../render/SymbolsLayer';
+import { RunsLayer } from '../render/RunsLayer';
 import type { JointStyle } from '../store/types';
 
 function downloadBlob(blob: Blob, filename: string): void {
@@ -44,7 +46,7 @@ export async function readPlanJsonFile(file: File): Promise<Plan> {
     throw new InvalidPlanFileError('The selected file does not match the expected floor plan format.');
   }
   const now = new Date().toISOString();
-  return { ...parsed, id: uuidv4(), updatedAt: now };
+  return normalizePlan({ ...parsed, id: uuidv4(), updatedAt: now } as Plan);
 }
 
 const EXPORT_BASE_WIDTH = 1400;
@@ -56,7 +58,12 @@ function buildExportSvgMarkup(
   plan: Plan,
   jointStyle: JointStyle,
 ): { markup: string; width: number; height: number } {
-  const points = [...plan.walls.flatMap((w) => [w.start, w.end]), ...plan.labels.map((l) => l.position)];
+  const points = [
+    ...plan.walls.flatMap((w) => [w.start, w.end]),
+    ...plan.labels.map((l) => l.position),
+    ...plan.symbols.map((s) => s.position),
+    ...plan.runs.flatMap((r) => r.points),
+  ];
   const viewport = fitToPoints(points, EXPORT_BASE_WIDTH, EXPORT_BASE_HEIGHT, EXPORT_PADDING_PX);
 
   const inner = renderToStaticMarkup(
@@ -72,6 +79,20 @@ function buildExportSvgMarkup(
       />
       <OpeningsLayer walls={plan.walls} openings={plan.openings} selectedIds={new Set()} scale={viewport.scale} />
       <LabelsLayer labels={plan.labels} selectedIds={new Set()} />
+      {plan.layers
+        .filter((l) => l.kind !== 'architectural' && l.visible)
+        .map((l) => (
+          <g key={l.id}>
+            <SymbolsLayer
+              symbols={plan.symbols.filter((s) => s.layerId === l.id)}
+              walls={plan.walls}
+              selectedIds={new Set()}
+              color={l.color}
+              scale={viewport.scale}
+            />
+            <RunsLayer runs={plan.runs.filter((r) => r.layerId === l.id)} selectedIds={new Set()} color={l.color} scale={viewport.scale} />
+          </g>
+        ))}
     </>,
   );
 

@@ -11,3 +11,4 @@ export * from './grid';
 export * from './hitTest';
 export * from './wallGraph';
 export * from './joints';
+export * from './placedSymbol';

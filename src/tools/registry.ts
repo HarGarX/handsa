@@ -5,6 +5,8 @@ import { wallTool } from './wallTool';
 import { doorTool, windowTool } from './openingTools';
 import { labelTool } from './labelTool';
 import { measureTool } from './measureTool';
+import { symbolTool } from './symbolTool';
+import { runTool } from './runTool';
 
 export const toolRegistry: Record<ToolId, Tool> = {
   select: selectTool,
@@ -13,4 +15,6 @@ export const toolRegistry: Record<ToolId, Tool> = {
   window: windowTool,
   label: labelTool,
   measure: measureTool,
+  symbol: symbolTool,
+  run: runTool,
 };

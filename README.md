@@ -1,9 +1,11 @@
 # Blueprint — 2D Floor Plan Editor
 
 A browser-based 2D floor plan / blueprint editor. Draw walls, doors, windows,
-and rooms with real-world (cm) measurements, then save, undo/redo, and
-export/import your plan. Single-page app, no backend — everything lives in
-`localStorage` plus JSON/PNG file export.
+and rooms with real-world (cm) measurements on an Architectural layer, then
+switch to Electrical, Plumbing, or Lighting/Sockets/AC layers to place
+fixtures and circuit/pipe runs against a dimmed reference of the floor plan.
+Save, undo/redo, and export/import your plan. Single-page app, no backend —
+everything lives in `localStorage` plus JSON/PNG file export.
 
 ## Running it
 
@@ -32,26 +34,36 @@ src/
                      wallGraph), joints (wall-joint fill caps, also built on
                      wallGraph), endpoints (coincident-endpoint / magnetism
                      lookups), wallShape (wall-rectangle-with-gaps geometry),
-                     hitTest (click/hover hit-testing), grid, format.
+                     placedSymbol (resolves a fixture's world position from
+                     its wall+t, mirroring how openings work), hitTest
+                     (click/hover hit-testing), grid, format.
                      Unit-tested in geometry/__tests__/.
+  lib/symbolCatalog.ts  Pure data: which fixture types exist per layer kind,
+                     their labels, footprints, and whether they're
+                     wall-mounted — the single source the Toolbar's picker,
+                     the Symbol tool, and rendering all read from.
   store/            One Zustand store (usePlanStore). `plan` is the single
-                     serializable object (walls/openings/labels + metadata) —
-                     everything else (viewport, selection, active tool,
-                     transient drag state) lives alongside it but is not
-                     part of what gets saved/exported.
+                     serializable object (walls/openings/labels/layers/
+                     symbols/runs + metadata) — everything else (viewport,
+                     selection, active tool, active layer, transient drag
+                     state) lives alongside it but is not part of what gets
+                     saved/exported.
   tools/            One module per tool (select, wall, door/window, label,
-                     measure), each a small class implementing the shared
-                     `Tool` interface (onPointerDown/Move/Up, onKeyDown).
-                     Tools read/write the store directly; no tool-specific
-                     state or logic leaks into React components.
+                     measure, symbol, run), each a small class implementing
+                     the shared `Tool` interface (onPointerDown/Move/Up,
+                     onKeyDown). Tools read/write the store directly; no
+                     tool-specific state or logic leaks into React
+                     components.
   render/            Presentational SVG components per entity type
-                     (grid, walls, openings, labels, rooms, selection
-                     handles, tool previews). All are `React.memo`'d and
-                     receive plain props so unaffected entities skip
-                     re-rendering during a drag.
+                     (grid, walls, openings, labels, rooms, symbols, runs,
+                     selection handles, tool previews). All are
+                     `React.memo`'d and receive plain props so unaffected
+                     entities skip re-rendering during a drag.
   components/        The app shell: Canvas (owns the <svg>, pointer/keyboard
-                     wiring, pan/zoom), Toolbar, TopBar, PropertiesPanel,
-                     modals, overlays.
+                     wiring, pan/zoom), LayerBar (switch active layer, toggle
+                     visibility), Toolbar (contextual: architectural tools vs.
+                     Symbol/Run per non-architectural layer), TopBar,
+                     PropertiesPanel, modals, overlays.
   lib/exportImport.tsx  JSON export/import (with shape validation) and PNG
                      export (renders a dedicated static SVG via
                      `react-dom/server`, rasterizes to canvas at 2x).
@@ -80,7 +92,17 @@ interface Opening {
   hinge?: 'start' | 'end'; swing?: 'left' | 'right'; // doors only
 }
 interface Label { id; position: Point; text: string; fontSize: number }
-interface Plan { id; name; walls; openings; labels; createdAt; updatedAt }
+
+interface Layer { id; name; kind: 'architectural' | 'electrical' | 'plumbing' | 'lighting-power-hvac'; color; visible }
+interface PlacedSymbol {
+  id; layerId; type: SymbolType;      // 'outlet' | 'sink' | 'light-ceiling' | ...
+  rotation: number;                    // degrees
+  position: Point;                     // authoritative for free-placed symbols
+  wallId?: string; t?: number;         // set instead, for wall-mounted symbols
+}
+interface Run { id; layerId; type: 'circuit' | 'supply-pipe' | 'drain-pipe'; points: Point[] }
+
+interface Plan { id; name; walls; openings; labels; layers; symbols; runs; createdAt; updatedAt }
 ```
 
 Openings are children of walls via `wallId` + parametric `t`, so moving a
@@ -89,6 +111,15 @@ wall deletes its openings. `clampOpeningT` keeps an opening's t inside the
 wall's bounds and away from other openings on the same wall as you drag it;
 `isOpeningInvalid` flags (in red) an opening that no longer fits because its
 wall was shrunk below the opening's width.
+
+Wall-mounted symbols (outlets, switches, thermostats, wall lights, AC units)
+follow the same "position derived from wall + t" pattern as openings —
+`geometry/placedSymbol.ts#resolveSymbolPosition` re-derives their point from
+the host wall on every read, so they automatically track wall edits. Their
+`position` field is only a last-known snapshot, kept for JSON readability and
+as a fallback if the host wall is ever missing; it's never treated as
+authoritative when `wallId` resolves. Free-placed symbols (sinks, toilets,
+ceiling lights, showers) just use `position` directly.
 
 ### The wall graph (shared by rooms and joints)
 
@@ -132,6 +163,40 @@ debounced — the whole point is to look seamless *while* dragging, and the
 O(n²) crossing check is cheap enough (well under a millisecond for a few
 hundred walls) to run every frame.
 
+### Layers (multi-discipline overlays)
+
+Every plan has four fixed layers, seeded by `createDefaultLayers()`:
+Architectural (walls/doors/windows/rooms/labels — unchanged from before,
+and the only layer that predates this system, so it has no `layerId` of
+its own on its entities), Electrical, Plumbing, and Lighting/Sockets/AC.
+The `LayerBar` (a tab strip under the top bar) switches which layer is
+"active" — only the active layer is editable; every other *visible* layer
+renders as a dimmed (30% opacity) reference underlay, and the active layer
+always renders at full opacity regardless of its own visibility flag (you
+need to see what you're editing, even if you'd hidden it while working on
+something else).
+
+Switching the active layer contextually swaps the left tool bar
+(`Toolbar.tsx`): the Architectural layer shows the original Wall/Door/
+Window/Label/Measure tools; the other three each show Select + a **Symbol**
+tool (click opens a small flyout picker listing that layer's fixture types
+from `symbolCatalogFor()`, e.g. Outlet/Switch/Panel for Electrical) + a
+**Run** tool (chains points like the wall tool, but — unlike walls, which
+materialize a `Wall` per click — accumulates the whole polyline in a draft
+and only commits one `Run` entity when you finish with Enter, double-click,
+or Escape-to-cancel).
+
+Symbols and runs are intentionally generic across all three fixture layers
+rather than one bespoke type per discipline: a `PlacedSymbol` is just
+`{ type, position/rotation, optional wallId+t }` and a `Run` is just
+`{ type, points }`, with `layerId` distinguishing which discipline (and
+therefore which color/catalog) they belong to. Wall-mounted symbol types
+(outlets, switches, thermostats, wall lights, AC units) snap to and slide
+along the nearest wall exactly like doors/windows do; free-placed types
+(sinks, toilets, showers, ceiling lights) just place at the clicked point.
+Deleting a wall cascades to any symbols mounted on it, same as it does for
+openings.
+
 ### Undo/redo & persistence
 
 The store exposes a small transaction API: `updateLive` mutates `plan`
@@ -139,9 +204,13 @@ without touching history (used for continuous drag feedback),
 `commitTransaction` finalizes the drag by pushing the *pre-drag* snapshot
 onto the undo stack (capped at 100), and `commitImmediate` does both in one
 call for one-shot edits (property panel fields, delete, add wall/opening/
-label). Plans autosave to `localStorage` 1s after the last change and are
-indexed under a single key (`floorplan.plans.index`) for the "My Plans"
-switcher; each plan's JSON also lives under its own key.
+label/symbol/run). Plans autosave to `localStorage` 1s after the last
+change and are indexed under a single key (`floorplan.plans.index`) for the
+"My Plans" switcher; each plan's JSON also lives under its own key.
+Toggling a layer's visibility (`setLayerVisibility`) is the one plan-content
+mutation that deliberately bypasses undo history — it's a view preference
+you're persisting, not a content edit, and it shouldn't cost you a redo step
+you actually cared about.
 
 ## Known limitations / simplifications
 
@@ -166,6 +235,21 @@ switcher; each plan's JSON also lives under its own key.
 - Room detection assumes a roughly axis/angle-clean drawing; extremely
   degenerate or self-overlapping wall geometry isn't guaranteed to produce
   sensible faces.
+- **The four layers are fixed** — Architectural, Electrical, Plumbing, and
+  Lighting/Sockets/AC always exist and can't be renamed, reordered, deleted,
+  or added to. Good enough for a single-family home; there's no "Add layer"
+  flow yet.
+- **The Run tool's type is fixed per layer** (Electrical/Lighting draw
+  `circuit`, Plumbing draws `supply-pipe`) — there's no in-tool way to draw
+  a `drain-pipe` directly; change a run's type afterwards via the Properties
+  panel dropdown instead.
+- **No overlap avoidance between symbols** — unlike door/window openings on
+  the same wall (which are actively clamped apart), multiple symbols can be
+  placed on top of each other. Real electrical/plumbing fixtures usually
+  aren't crammed together, so this hasn't mattered in practice yet.
+- **No point-level editing of a run's polyline** after it's drawn — Select
+  lets you translate or delete the whole run, but not drag an individual
+  vertex.
 
 ## Roadmap
 
@@ -215,62 +299,32 @@ layering more disciplines on top of it.
 
 ### Phase 2 — Multi-discipline layers (electrical, plumbing, lighting/HVAC)
 
-The biggest structural addition: today there's one implicit "architectural"
-layer (walls/doors/windows/rooms/labels). The plan is to generalize that into
-a small **layer system**, closer to how real MEP (Mechanical / Electrical /
-Plumbing) drawing sets work — one base floor plan, several overlays that
-each focus on one trade:
+✅ **Shipped.** See the "Layers" section above for how it works and the data
+model section for the `Layer`/`PlacedSymbol`/`Run` shapes. Recap of what
+landed:
 
-- **Architectural** (existing, always present) — walls, doors, windows,
-  rooms, labels, dimensions.
-- **Electrical** — circuit/conduit runs and a panel symbol.
-- **Plumbing** — supply/drain pipe runs and fixtures (sink, toilet, shower,
-  water heater).
-- **Lighting, sockets & AC** — the point fixtures that sit at the *ends* of
-  the electrical/plumbing runs and are what most homeowners actually care
-  about placing: ceiling/wall lights, switches, power outlets, AC/HVAC units,
-  thermostats.
+- Four fixed layers (Architectural, Electrical, Plumbing, Lighting/Sockets/
+  AC), switchable via the `LayerBar` tab strip, each with a per-layer
+  visibility toggle and accent color.
+- A contextual left tool bar: Architectural keeps the original Wall/Door/
+  Window/Label/Measure tools; the other three swap in a **Symbol** tool
+  (flyout picker of that layer's fixture catalog) and a **Run** tool
+  (chain-drawn circuit/pipe polylines).
+- Generic `PlacedSymbol` (wall-mounted or free-placed, per fixture type) and
+  `Run` entities shared across all three fixture layers rather than one
+  bespoke type per discipline.
+- Inactive-but-visible layers render dimmed (30% opacity) underneath the
+  active layer, which always renders at full opacity — matching how a real
+  MEP drawing set shows the walls lightly and the active trade boldly.
+- Full Select-tool support (hit-test, drag/slide, delete, Properties panel
+  editing) and PNG/JSON export/import for the new entities.
 
-Sketch of the data model change (additive, doesn't touch `Wall`/`Opening`):
-
-```ts
-interface Layer {
-  id: string;
-  name: string;
-  kind: 'architectural' | 'electrical' | 'plumbing' | 'lighting-power-hvac' | 'custom';
-  visible: boolean;
-  locked: boolean;
-  color: string; // accent color used for this layer's symbols/runs
-}
-
-interface Symbol {          // a point-placed fixture on a given layer
-  id: string;
-  layerId: string;
-  type: string;             // 'outlet' | 'switch' | 'light-ceiling' | 'sink' | 'ac-unit' | ...
-  position: Point;
-  rotation: number;          // degrees
-  wallId?: string;           // optional: snapped to a wall, like Opening.t
-  t?: number;
-}
-
-interface Run {              // a line-based item on a given layer
-  id: string;
-  layerId: string;
-  type: string;              // 'circuit' | 'supply-pipe' | 'drain-pipe' | ...
-  points: Point[];
-}
-```
-
-UI concept: a layer switcher (tabs or a dropdown near the tool bar). The
-active layer renders in full color and is the only one editable; inactive
-layers render as a dimmed/ghosted "underlay" of walls only, for reference —
-exactly how a real electrician's drawing shows the walls lightly and the
-circuits boldly. Each layer gets its own simple symbol set and, later, an
-auto-generated schedule/legend (e.g. a fixture count table) — useful for
-quantity take-offs, not just visuals.
-
-This is a genuine v2 of the app, not a small patch — plan for it as its own
-milestone once Phase 1 lands.
+Deliberately deferred (see "Known limitations" above for the specifics):
+custom/renamable/addable layers (the four are fixed for now), per-layer
+fixture schedules/legends (e.g. an auto-generated outlet count table — real
+value for quantity take-offs, but a distinct feature from placing the
+fixtures), and drain-pipe as a first-class Run-tool option rather than a
+post-hoc Properties panel edit.
 
 ### Phase 3 — Furniture & symbol library
 
@@ -284,16 +338,28 @@ check clearances and layout at a glance without the platform trying to
 work, and keeps the rendering code simple (more SVG shape presets, no image
 assets, no asset licensing to worry about).
 
-- A small built-in catalog of common footprints (bed sizes, sofa/sectional,
-  dining table + chairs, kitchen counter/island, wardrobe, desk) — each just
-  a `{ width, depth, shapeId }`, rendered by the same kind of pure-function
-  shape generator used for doors/windows.
-  A generic `Furniture` entity (position, rotation, width, depth, shapeId,
-  optional label) — same shape as `Symbol` above, so it's likely this and
-  the layer-system symbols end up sharing one underlying entity type rather
-  than being two parallel concepts.
-- Drag-place + rotate (15° snap like walls) + resize via corner handles.
-- Optional "snap to wall" for wall-hugging furniture (wardrobes, counters).
+Phase 2 already resolved the "is this a separate entity type?" question
+that used to sit here: `PlacedSymbol` (`type` + `rotation` + `position` or
+`wallId`/`t`) is generic enough that furniture is just more entries in
+`lib/symbolCatalog.ts` under a new `'furniture'` layer kind — a bed, a sofa,
+and an outlet are all "a rotated footprint, maybe wall-snapped" as far as
+the data model and `SymbolsLayer`/`resolveSymbolPosition` are concerned.
+Concretely, what Phase 3 actually adds on top of the existing machinery:
+
+- A `'furniture'` `LayerKind` + a fifth default layer, and a furniture
+  catalog entry per common footprint (bed sizes, sofa/sectional, dining
+  table + chairs, kitchen counter/island, wardrobe, desk) — each a
+  `{ type, label, wallMounted, size }` like today's electrical/plumbing
+  entries, plus a new `SymbolIcon` case per shape.
+- **Resize via corner handles** — today's symbols have a fixed footprint
+  per type; furniture is the first case that needs per-instance width/depth
+  (a "queen bed" and a "king bed" shouldn't need separate catalog entries).
+  This is the one real data model addition: an optional `width`/`depth`
+  override on `PlacedSymbol` alongside its catalog default.
+- Everything else — drag-place, 15° rotation snap, wall-snap for
+  wall-hugging pieces (wardrobes, counters), Select-tool integration,
+  Properties panel editing — falls out of the existing Symbol
+  infrastructure for free.
 
 ### Phase 4 — Professional export & multi-floor/3D
 

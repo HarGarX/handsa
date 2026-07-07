@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { PanelRightClose, PanelRightOpen } from 'lucide-react';
 import { usePlanStore } from '../store/usePlanStore';
-import type { Hinge, Swing } from '../types/plan';
+import type { Hinge, RunType, SymbolType, Swing } from '../types/plan';
 import { unitDirection, wallLength } from '../geometry/segment';
+import { RUN_TYPE_LABELS, symbolCatalogEntry, symbolCatalogFor } from '../lib/symbolCatalog';
 
 function NumberField({
   label,
@@ -228,6 +229,89 @@ function LabelProperties({ labelId }: { labelId: string }) {
   );
 }
 
+function SymbolProperties({ symbolId }: { symbolId: string }) {
+  const symbol = usePlanStore((s) => s.plan.symbols.find((sym) => sym.id === symbolId));
+  const layers = usePlanStore((s) => s.plan.layers);
+  const commitImmediate = usePlanStore((s) => s.commitImmediate);
+  if (!symbol) return null;
+  const layer = layers.find((l) => l.id === symbol.layerId);
+  const entry = symbolCatalogEntry(symbol.type);
+  const catalog = layer && layer.kind !== 'architectural' ? symbolCatalogFor(layer.kind) : [];
+
+  function setType(type: SymbolType) {
+    commitImmediate((plan) => ({
+      ...plan,
+      symbols: plan.symbols.map((s) => (s.id === symbolId ? { ...s, type } : s)),
+    }));
+  }
+  function setRotation(rotation: number) {
+    commitImmediate((plan) => ({
+      ...plan,
+      symbols: plan.symbols.map((s) => (s.id === symbolId ? { ...s, rotation } : s)),
+    }));
+  }
+
+  return (
+    <div key={symbolId} className="flex flex-col gap-3">
+      <SectionTitle>{layer?.name ?? 'Symbol'}</SectionTitle>
+      <label className="flex flex-col gap-1 text-xs text-gray-500">
+        Type
+        <select
+          value={symbol.type}
+          onChange={(e) => setType(e.target.value as SymbolType)}
+          className="w-full rounded border border-gray-200 px-2 py-1 text-sm text-gray-900 outline-none focus:border-blue-400"
+        >
+          {catalog.map((c) => (
+            <option key={c.type} value={c.type}>
+              {c.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <NumberField label="Rotation (degrees)" value={Math.round(symbol.rotation)} min={0} max={359} onCommit={setRotation} />
+      <p className="text-xs text-gray-400">
+        {symbol.wallId
+          ? `Wall-mounted — slides along its wall in the Select tool.`
+          : `Free-placed — drag to reposition.`}{' '}
+        Footprint: {entry.size} cm.
+      </p>
+    </div>
+  );
+}
+
+function RunProperties({ runId }: { runId: string }) {
+  const run = usePlanStore((s) => s.plan.runs.find((r) => r.id === runId));
+  const layers = usePlanStore((s) => s.plan.layers);
+  const commitImmediate = usePlanStore((s) => s.commitImmediate);
+  if (!run) return null;
+  const layer = layers.find((l) => l.id === run.layerId);
+
+  function setType(type: RunType) {
+    commitImmediate((plan) => ({ ...plan, runs: plan.runs.map((r) => (r.id === runId ? { ...r, type } : r)) }));
+  }
+
+  return (
+    <div key={runId} className="flex flex-col gap-3">
+      <SectionTitle>{layer?.name ?? 'Run'}</SectionTitle>
+      <label className="flex flex-col gap-1 text-xs text-gray-500">
+        Type
+        <select
+          value={run.type}
+          onChange={(e) => setType(e.target.value as RunType)}
+          className="w-full rounded border border-gray-200 px-2 py-1 text-sm text-gray-900 outline-none focus:border-blue-400"
+        >
+          {(Object.keys(RUN_TYPE_LABELS) as RunType[]).map((t) => (
+            <option key={t} value={t}>
+              {RUN_TYPE_LABELS[t]}
+            </option>
+          ))}
+        </select>
+      </label>
+      <p className="text-xs text-gray-400">{run.points.length} points along this run.</p>
+    </div>
+  );
+}
+
 function PlanStats() {
   const plan = usePlanStore((s) => s.plan);
   const renamePlan = usePlanStore((s) => s.renamePlan);
@@ -253,6 +337,10 @@ function PlanStats() {
         <dd className="text-right text-gray-900">{plan.openings.filter((o) => o.type === 'window').length}</dd>
         <dt>Labels</dt>
         <dd className="text-right text-gray-900">{plan.labels.length}</dd>
+        <dt>Symbols</dt>
+        <dd className="text-right text-gray-900">{plan.symbols.length}</dd>
+        <dt>Runs</dt>
+        <dd className="text-right text-gray-900">{plan.runs.length}</dd>
       </dl>
       <p className="text-xs text-gray-400">Select an item on the canvas to edit its properties.</p>
     </div>
@@ -284,6 +372,8 @@ export function PropertiesPanel() {
     const entry = selection[0]!;
     if (entry.type === 'wall') content = <WallProperties wallId={entry.id} />;
     else if (entry.type === 'opening') content = <OpeningProperties openingId={entry.id} />;
+    else if (entry.type === 'symbol') content = <SymbolProperties symbolId={entry.id} />;
+    else if (entry.type === 'run') content = <RunProperties runId={entry.id} />;
     else content = <LabelProperties labelId={entry.id} />;
   } else if (selection.length > 1) {
     content = <p className="text-sm text-gray-500">{selection.length} items selected</p>;

@@ -1,7 +1,7 @@
 import { usePlanStore } from '../store/usePlanStore';
 import type { Point } from '../types/plan';
 import { findCoincidentEndpoints, findNearestEndpoint, type EndpointRef } from '../geometry/endpoints';
-import { hitTestLabel, hitTestOpening, hitTestWall } from '../geometry/hitTest';
+import { hitTestLabel, hitTestOpening, hitTestRun, hitTestSymbol, hitTestWall } from '../geometry/hitTest';
 import { clampOpeningT } from '../geometry/opening';
 import { projectPointToSegment } from '../geometry/segment';
 import { snapPoint, snapValue } from '../geometry/snapping';
@@ -12,10 +12,12 @@ const ENDPOINT_HANDLE_SCREEN_PX = 9;
 const WALL_HIT_SCREEN_PX = 5;
 const OPENING_HIT_SCREEN_PX = 10;
 const LABEL_HIT_SCREEN_PX = 10;
+const SYMBOL_HIT_SCREEN_PX = 8;
+const RUN_HIT_SCREEN_PX = 8;
 const DRAG_THRESHOLD_SCREEN_PX = 3;
 const ENDPOINT_MAGNET_SCREEN_PX = 20;
 
-type DragMode = 'none' | 'endpoint' | 'wall' | 'opening' | 'label';
+type DragMode = 'none' | 'endpoint' | 'wall' | 'opening' | 'label' | 'symbol' | 'run';
 
 class SelectTool implements Tool {
   id = 'select' as const;
@@ -33,6 +35,11 @@ class SelectTool implements Tool {
   private openingDragWallId: string | null = null;
   private labelDragId: string | null = null;
   private doorClickCandidate: string | null = null;
+  private symbolDragId: string | null = null;
+  private symbolDragWallId: string | null = null;
+  private runDragId: string | null = null;
+  private runDragOriginalPoints: Point[] = [];
+  private runDragStartWorld: Point = { x: 0, y: 0 };
 
   private applySelectionOnDown(entry: SelectionEntry, shiftKey: boolean, currentSelection: SelectionEntry[]): void {
     const alreadySelected = currentSelection.some((s) => s.type === entry.type && s.id === entry.id);
@@ -56,9 +63,44 @@ class SelectTool implements Tool {
     this.dragMode = 'none';
     this.doorClickCandidate = null;
 
-    const { plan, selection, viewport } = state;
-    const endpointRadiusCm = ENDPOINT_HANDLE_SCREEN_PX / viewport.scale;
+    const { plan, selection, viewport, activeLayerId } = state;
+    const activeLayer = plan.layers.find((l) => l.id === activeLayerId);
+    const isArchitectural = !activeLayer || activeLayer.kind === 'architectural';
 
+    if (!isArchitectural) {
+      const symbol = hitTestSymbol(
+        plan.symbols.filter((s) => s.layerId === activeLayerId),
+        plan.walls,
+        info.world,
+        SYMBOL_HIT_SCREEN_PX / viewport.scale,
+      );
+      if (symbol) {
+        this.applySelectionOnDown({ type: 'symbol', id: symbol.id }, info.shiftKey, selection);
+        this.dragMode = 'symbol';
+        this.symbolDragId = symbol.id;
+        this.symbolDragWallId = symbol.wallId ?? null;
+        return;
+      }
+
+      const run = hitTestRun(
+        plan.runs.filter((r) => r.layerId === activeLayerId),
+        info.world,
+        RUN_HIT_SCREEN_PX / viewport.scale,
+      );
+      if (run) {
+        this.applySelectionOnDown({ type: 'run', id: run.id }, info.shiftKey, selection);
+        this.dragMode = 'run';
+        this.runDragId = run.id;
+        this.runDragOriginalPoints = run.points;
+        this.runDragStartWorld = info.world;
+        return;
+      }
+
+      if (!info.shiftKey) state.clearSelection();
+      return;
+    }
+
+    const endpointRadiusCm = ENDPOINT_HANDLE_SCREEN_PX / viewport.scale;
     const selectedWallIds = new Set(selection.filter((s) => s.type === 'wall').map((s) => s.id));
     const selectedWalls = plan.walls.filter((w) => selectedWallIds.has(w.id));
     let endpointHit: Point | null = null;
@@ -165,6 +207,31 @@ class SelectTool implements Tool {
     if (this.dragMode === 'label' && this.labelDragId) {
       const position = snapPoint(info.world, snapIncrement, snapEnabled);
       state.updateLabelLive(this.labelDragId, { position });
+      return;
+    }
+
+    if (this.dragMode === 'symbol' && this.symbolDragId) {
+      if (this.symbolDragWallId) {
+        const wall = plan.walls.find((w) => w.id === this.symbolDragWallId);
+        if (!wall) return;
+        const proj = projectPointToSegment(info.world, wall.start, wall.end);
+        state.updateSymbolLive(this.symbolDragId, { t: proj.t, position: proj.point });
+      } else {
+        const position = snapPoint(info.world, snapIncrement, snapEnabled);
+        state.updateSymbolLive(this.symbolDragId, { position });
+      }
+      return;
+    }
+
+    if (this.dragMode === 'run' && this.runDragId) {
+      let dx = info.world.x - this.runDragStartWorld.x;
+      let dy = info.world.y - this.runDragStartWorld.y;
+      if (snapEnabled) {
+        dx = snapValue(dx, snapIncrement);
+        dy = snapValue(dy, snapIncrement);
+      }
+      const points = this.runDragOriginalPoints.map((p) => ({ x: p.x + dx, y: p.y + dy }));
+      state.updateRunLive(this.runDragId, { points });
     }
   }
 
@@ -189,6 +256,10 @@ class SelectTool implements Tool {
     this.openingDragWallId = null;
     this.labelDragId = null;
     this.doorClickCandidate = null;
+    this.symbolDragId = null;
+    this.symbolDragWallId = null;
+    this.runDragId = null;
+    this.runDragOriginalPoints = [];
     usePlanStore.getState().setInteraction({ hoveredEndpoint: null });
   }
 

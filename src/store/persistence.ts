@@ -1,5 +1,5 @@
 import type { Plan } from '../types/plan';
-import { isValidPlanShape } from '../types/plan';
+import { isValidPlanShape, normalizePlan } from '../types/plan';
 
 const INDEX_KEY = 'floorplan.plans.index';
 const ACTIVE_KEY = 'floorplan.activePlanId';
@@ -43,7 +43,7 @@ export function loadPlan(id: string): Plan | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as unknown;
     if (!isValidPlanShape(parsed)) return null;
-    return parsed;
+    return normalizePlan(parsed as Plan);
   } catch {
     return null;
   }

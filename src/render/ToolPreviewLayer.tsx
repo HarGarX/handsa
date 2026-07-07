@@ -1,13 +1,17 @@
 import { memo } from 'react';
 import type { Point, Wall } from '../types/plan';
-import type { MeasureDraft, OpeningGhost, WallDraft } from '../store/types';
+import type { MeasureDraft, OpeningGhost, RunDraft, SymbolGhost, WallDraft } from '../store/types';
 import { formatAngleDeg, formatLengthM } from '../geometry/format';
 import { pointAt, unitNormal, wallAngle, wallLength } from '../geometry/segment';
+import { symbolCatalogEntry } from '../lib/symbolCatalog';
+import { SymbolIcon } from './SymbolsLayer';
 
 interface ToolPreviewLayerProps {
   wallDraft: WallDraft | null;
   measureDraft: MeasureDraft | null;
   openingGhost: OpeningGhost | null;
+  runDraft: RunDraft | null;
+  symbolGhost: SymbolGhost | null;
   walls: Wall[];
   hoveredEndpoint: Point | null;
   scale: number;
@@ -107,11 +111,50 @@ function OpeningGhostPreview({ ghost, walls, scale }: { ghost: OpeningGhost; wal
   );
 }
 
-function ToolPreviewLayerImpl({ wallDraft, measureDraft, openingGhost, walls, hoveredEndpoint, scale }: ToolPreviewLayerProps) {
+function RunDraftPreview({ draft, scale }: { draft: RunDraft; scale: number }) {
+  const allPoints = draft.previewPoint ? [...draft.points, draft.previewPoint] : draft.points;
+  if (allPoints.length === 0) return null;
+  return (
+    <g>
+      <polyline
+        points={allPoints.map((p) => `${p.x},${p.y}`).join(' ')}
+        fill="none"
+        stroke="#2563eb"
+        strokeWidth={1.5 / scale}
+        strokeDasharray={`${5 / scale} ${3 / scale}`}
+      />
+      {allPoints.map((p, i) => (
+        <circle key={i} cx={p.x} cy={p.y} r={3 / scale} fill="#2563eb" />
+      ))}
+    </g>
+  );
+}
+
+function SymbolGhostPreview({ ghost, scale }: { ghost: SymbolGhost; scale: number }) {
+  const entry = symbolCatalogEntry(ghost.type);
+  return (
+    <g transform={`translate(${ghost.position.x} ${ghost.position.y}) rotate(${ghost.rotation})`} opacity={0.5}>
+      <SymbolIcon type={ghost.type} size={entry.size} color="#2563eb" scale={scale} />
+    </g>
+  );
+}
+
+function ToolPreviewLayerImpl({
+  wallDraft,
+  measureDraft,
+  openingGhost,
+  runDraft,
+  symbolGhost,
+  walls,
+  hoveredEndpoint,
+  scale,
+}: ToolPreviewLayerProps) {
   return (
     <g>
       {openingGhost && <OpeningGhostPreview ghost={openingGhost} walls={walls} scale={scale} />}
+      {symbolGhost && <SymbolGhostPreview ghost={symbolGhost} scale={scale} />}
       {wallDraft && <WallDraftPreview draft={wallDraft} scale={scale} />}
+      {runDraft && <RunDraftPreview draft={runDraft} scale={scale} />}
       {measureDraft && <MeasurePreview draft={measureDraft} scale={scale} />}
       {hoveredEndpoint && (
         <circle cx={hoveredEndpoint.x} cy={hoveredEndpoint.y} r={6 / scale} fill="none" stroke="#22c55e" strokeWidth={2 / scale} />
