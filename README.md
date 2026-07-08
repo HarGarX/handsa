@@ -645,6 +645,91 @@ Deliberately deferred, matching the original scope call:
   openings become real cutouts, driven directly off the existing data model
   plus the new height attributes.
 
+### Phase 6 — Marketing site & account shell (landing page, fake auth, guest mode)
+
+Right now the editor has no discovery layer — the only way to use Blueprint
+is to already have the app open. The idea: wrap the existing editor in a
+small marketing shell — a landing page that explains what Blueprint is and
+why someone would want it, plus login/register screens that let a visitor
+either "sign up" for a cosmetic, fully-local account or skip straight in as
+a guest. This is explicitly **not** a real accounts system: no user data is
+collected or stored on any server today, and the fake login only remembers
+a display name locally, purely so the shell feels complete — the real point
+is leaving a clean seam that a real backend + real accounts could slot into
+*later*, without building auth infrastructure the app has no other use for
+yet. Doesn't have to wait for Phase 5; it's independent of the CAD engine
+itself.
+
+Concrete pieces:
+
+- **Routing**: the one new dependency this phase needs is `react-router-dom`,
+  with four routes — `/` (landing), `/login`, `/register`, and `/app` (the
+  existing editor, unchanged). No route is actually gated: `/app` stays
+  directly reachable, by design, since a guest already has full access to
+  everything the app does.
+- **`LandingPage`**: a hero section (what Blueprint is, one-line pitch, a
+  screenshot or embedded mini-preview of the editor), feature-highlight
+  blocks pulled from what's already shipped (layers, wall-joint fill, the
+  Placement Assistant, PNG/JSON export), a short "how it works" strip, and a
+  trust/privacy callout that's genuinely true today, not just copy: *"100%
+  local — your plans live in this browser's storage and are never uploaded
+  anywhere."* CTAs: "Continue as guest" (straight to `/app`), "Log in", "Sign
+  up." If `localStorage` already has saved plans (detectable via the
+  existing `plansIndex`), the primary CTA reads "Continue editing" instead
+  of "Get started" — a small, cheap touch since that data already exists.
+- **`LoginPage` / `RegisterPage`**: normal-looking email + password forms
+  (register also asks for a display name), but submitting does nothing
+  except store `{ displayName }` in a new, small, separate `useAuthStore`
+  and route to `/app` — no server validation because there's nothing to
+  validate against or send to. Each page says so in a small disclosure line
+  under the form (*"This is a demo account — nothing is sent anywhere, and
+  your name is only remembered on this device."*) and offers a "Skip this,
+  continue as guest" link as an equally valid alternative to submitting.
+- **`useAuthStore`**: a tiny, separate Zustand store (`isAuthed`,
+  `displayName`, `login()`, `logout()`, `continueAsGuest()`), persisted under
+  its own localStorage key. Kept deliberately separate from `usePlanStore`
+  so it's obvious at a glance that authentication state and plan data are
+  two unrelated concerns — logging out can never touch a user's saved plans,
+  because plans were never tied to an account to begin with.
+- **TopBar acknowledgement**: once "logged in" (or continuing as guest), a
+  small corner element shows the display name (or "Guest") with a "Log out"
+  action that clears `useAuthStore` and returns to `/`. Purely cosmetic —
+  it doesn't delete or hide any plans.
+- **First-run touches that make the shell actually earn its keep**, rather
+  than just existing:
+  - A **preloaded sample plan** (a small furnished apartment using several
+    layers) so a fresh guest sees a real, populated example immediately
+    instead of a blank canvas — the fastest way to make "how this helps you"
+    obvious without writing more marketing copy.
+  - A **first-run hint sequence** in the editor itself for a visitor's first
+    session (e.g. pointing at the Layer bar and the Placement Assistant),
+    building on this session's tooltip/`DraftHint` work rather than
+    introducing a new explainer mechanism.
+
+Deliberately out of scope for v1 (the actual point of calling this "fake"
+auth):
+
+- **No real backend, no server-side anything.** Login/register never
+  contact a network — there's nothing to contact.
+- **No password security considerations apply** — there's no password to
+  store, hash, or leak, since nothing is stored beyond a display name on the
+  visitor's own device.
+- **No per-user plan storage or cloud sync yet.** Every plan still lives in
+  the same browser-local `localStorage` it always has; "logging in" doesn't
+  currently change what data you can see or where it's stored. This is the
+  seam intentionally left open for later: *if* Blueprint ever gets a real
+  backend, `useAuthStore`'s fields are the natural place to grow into a real
+  session, and the plans-index/persistence layer is the natural place to
+  grow into per-account cloud sync — building either is explicitly not part
+  of this phase.
+- **No email verification, password reset, OAuth, etc.** — standard trappings
+  of real auth that would be actively misleading to build against a fake
+  backend.
+- **No fabricated social proof** — no fake testimonials, review counts, or
+  user numbers on the landing page. The trust story here is "your data never
+  leaves your browser," which is true today; anything else on the page
+  should stay true too.
+
 ### Further out / stretch ideas
 
 - **Smart alignment guides** (Figma-style: snap to other elements' edges/
@@ -663,6 +748,13 @@ Deliberately deferred, matching the original scope call:
   or a static-hosting trick (e.g. a shareable self-contained HTML export),
   since the app is currently 100% local-storage; worth scoping separately
   since it's the one item here that breaks the "no backend" constraint.
+- **Real accounts + cloud sync** — the actual, non-fake version of Phase 6's
+  `useAuthStore` seam: a real backend, real sessions, and per-account plan
+  storage so a saved plan follows a user across devices. Would also be what
+  finally makes the share-link idea above easy, since both need the same
+  "some backend" prerequisite. Not planned until there's a concrete reason
+  to take on that infrastructure — the fake shell exists precisely so this
+  can stay deferred without blocking the landing page/guest-mode work.
 - **Broader automated test coverage** — the geometry module is unit-tested;
   the tool interaction layer (drag flows, clamping, undo/redo) is currently
   only verified manually/via ad-hoc Playwright scripts. A small Playwright
