@@ -101,6 +101,7 @@ export function TopBar() {
 
       <button
         type="button"
+        title="Open, switch between, duplicate, or delete your saved plans"
         onClick={() => {
           usePlanStore.getState().refreshPlansIndex();
           setShowPlansModal(true);
@@ -136,7 +137,7 @@ export function TopBar() {
 
       <button
         type="button"
-        title="Toggle grid snapping"
+        title="When on, points you place (wall corners, doors, labels...) snap to the nearest grid increment"
         aria-pressed={snapEnabled}
         onClick={() => setSnapEnabled(!snapEnabled)}
         className={`flex items-center gap-1.5 rounded px-2 py-1.5 text-sm ${
@@ -150,7 +151,7 @@ export function TopBar() {
         value={snapIncrement}
         onChange={(e) => setSnapIncrement(Number(e.target.value) as SnapIncrement)}
         className="rounded border border-gray-200 px-1.5 py-1 text-sm text-gray-700"
-        title="Snap increment"
+        title="How finely placed points snap to the grid"
       >
         <option value={1}>1 cm</option>
         <option value={5}>5 cm</option>
@@ -202,7 +203,7 @@ export function TopBar() {
       <input ref={fileInputRef} type="file" accept="application/json" className="hidden" onChange={handleImportFile} />
       <button
         type="button"
-        title="Import JSON"
+        title="Import a floor plan JSON file as a new plan"
         onClick={() => fileInputRef.current?.click()}
         className="flex items-center gap-1.5 rounded px-2 py-1.5 text-sm text-gray-600 hover:bg-gray-100"
       >
@@ -211,7 +212,7 @@ export function TopBar() {
       </button>
       <button
         type="button"
-        title="Export JSON"
+        title="Download the current plan as a JSON file"
         onClick={() => exportPlanJson(plan)}
         className="flex items-center gap-1.5 rounded px-2 py-1.5 text-sm text-gray-600 hover:bg-gray-100"
       >
@@ -250,7 +251,7 @@ export function TopBar() {
       )}
       <button
         type="button"
-        title="Export PNG"
+        title="Download the current plan as a PNG image, at the scale selected to the left"
         onClick={handleExportPng}
         disabled={exportingPng}
         className="flex items-center gap-1.5 rounded px-2 py-1.5 text-sm text-gray-600 hover:bg-gray-100 disabled:opacity-50"

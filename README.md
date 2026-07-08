@@ -300,6 +300,54 @@ mutation that deliberately bypasses undo history — it's a view preference
 you're persisting, not a content edit, and it shouldn't cost you a redo step
 you actually cared about.
 
+### Run drafts never get silently discarded
+
+Walls commit a real `Wall` to the plan on every click of the chain, so
+there's nothing to lose if you switch tools mid-wall. Runs (circuit/pipe
+polylines) don't work that way — a `Run` used to only get created when the
+chain was *explicitly* finished (Enter, double-click, or clicking the last
+point again), which meant the in-progress polyline you saw on screen was
+purely a transient preview. If you switched tools or layers instead of
+finishing the chain — the natural thing to do once you're done routing a
+pipe — that preview, and every point you'd placed, was thrown away with no
+warning. From the outside this looked like "drawing a plumbing/electrical
+run does nothing."
+
+The fix is `finalizePendingRunDraft` in `usePlanStore.ts`: any store action
+that resets `interaction` (`setActiveTool`, `setActiveLayer`, `newPlan`,
+`duplicatePlan`, `switchPlan`, `deletePlan`, `importPlan`) now first checks
+for a live `runDraft` with at least two points and, if found, commits it as
+a real `Run` before doing anything else. A single click (one point, no
+real path yet) is still discarded, since there's nothing meaningful to
+save. This makes "switch tools once you're done" and "press Enter to
+finish" equally safe ways to end a run.
+
+As a second, purely visual layer of defense, `DraftHint.tsx` shows a small
+floating reminder above the canvas any time a Wall or Run chain is
+in-progress (e.g. *"Click to add a point · Enter or double-click to finish
+· Esc to cancel (finished points are saved automatically even if you
+switch tools)"*), so the behavior is discoverable instead of being an
+invisible safety net.
+
+While auditing this, the Furniture layer's toolbar turned out to be
+showing a Run tool button it should never have had — `RUN_TYPE_BY_LAYER_KIND`
+has no entry for `furniture` (there's no such thing as a "furniture run"),
+but `Toolbar.tsx` rendered the button unconditionally for every
+non-architectural layer instead of gating on that lookup. Fixed by only
+rendering the button when `RUN_TYPE_BY_LAYER_KIND[activeLayer.kind]`
+resolves to something.
+
+### Tooltips
+
+Every interactive control — toolbar tools, layer tabs, snap/units/scale
+settings, properties panel fields, the plans modal — now has a `title`
+attribute explaining what it does and, where the behavior isn't obvious
+from the label alone, how to use it (e.g. the Symbol tool's tooltip
+explains you click it once to open the fixture picker and again on the
+canvas to place one; the wall-mounted vs. free-placed distinction is
+called out per fixture type). These surface as native browser tooltips on
+hover.
+
 ## Known limitations / simplifications
 
 - **Wall joints are filled with a square/round cap** (see "Wall joints"

@@ -17,6 +17,7 @@ import { ToolPreviewLayer } from '../render/ToolPreviewLayer';
 import { LabelEditorOverlay } from './LabelEditorOverlay';
 import { ZoomControls } from './ZoomControls';
 import { CursorReadout } from './CursorReadout';
+import { DraftHint } from './DraftHint';
 
 export function Canvas() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -375,6 +376,7 @@ export function Canvas() {
       <LabelEditorOverlay viewport={viewport} />
       <ZoomControls containerWidth={size.width} containerHeight={size.height} />
       <CursorReadout />
+      <DraftHint />
     </div>
   );
 }

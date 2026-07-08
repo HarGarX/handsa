@@ -157,6 +157,7 @@ function WallProperties({ wallId }: { wallId: string }) {
         <select
           value={wall.thickness}
           onChange={(e) => setThickness(Number(e.target.value))}
+          title="How thick this wall is drawn — affects the joint fill with connecting walls"
           className="w-full rounded border border-gray-200 px-2 py-1 text-sm text-gray-900 outline-none focus:border-blue-400"
         >
           {[10, 15, 20, 25, 30].map((t) => (
@@ -207,6 +208,7 @@ function OpeningProperties({ openingId }: { openingId: string }) {
                 <button
                   key={h}
                   type="button"
+                  title={`Hinge at the ${h} of the wall opening — the door pivots from this side`}
                   onClick={() => setHinge(h)}
                   className={`flex-1 rounded border px-2 py-1 text-sm ${
                     (opening.hinge ?? 'start') === h
@@ -226,6 +228,7 @@ function OpeningProperties({ openingId }: { openingId: string }) {
                 <button
                   key={sw}
                   type="button"
+                  title={`Door swings open to the ${sw}`}
                   onClick={() => setSwing(sw)}
                   className={`flex-1 rounded border px-2 py-1 text-sm ${
                     (opening.swing ?? 'left') === sw
@@ -317,6 +320,7 @@ function SymbolProperties({ symbolId }: { symbolId: string }) {
         <select
           value={symbol.type}
           onChange={(e) => setType(e.target.value as SymbolType)}
+          title="Change what fixture this symbol represents, keeping its position and rotation"
           className="w-full rounded border border-gray-200 px-2 py-1 text-sm text-gray-900 outline-none focus:border-blue-400"
         >
           {catalog.map((c) => (
@@ -364,6 +368,7 @@ function RunProperties({ runId }: { runId: string }) {
         <select
           value={run.type}
           onChange={(e) => setType(e.target.value as RunType)}
+          title="Change what kind of run this is, keeping its drawn path"
           className="w-full rounded border border-gray-200 px-2 py-1 text-sm text-gray-900 outline-none focus:border-blue-400"
         >
           {(Object.keys(RUN_TYPE_LABELS) as RunType[]).map((t) => (

@@ -3,22 +3,59 @@ import { MousePointer2, BrickWall, DoorOpen, AppWindow, Type, Ruler, Shapes, Cab
 import type { LucideIcon } from 'lucide-react';
 import { usePlanStore } from '../store/usePlanStore';
 import type { ToolId } from '../store/types';
-import { symbolCatalogFor } from '../lib/symbolCatalog';
+import { RUN_TYPE_BY_LAYER_KIND, RUN_TYPE_LABELS, symbolCatalogFor } from '../lib/symbolCatalog';
 
 interface ToolDef {
   id: ToolId;
   label: string;
   shortcut: string;
+  description: string;
   Icon: LucideIcon;
 }
 
 const ARCHITECTURAL_TOOLS: ToolDef[] = [
-  { id: 'select', label: 'Select', shortcut: 'V', Icon: MousePointer2 },
-  { id: 'wall', label: 'Wall', shortcut: 'W', Icon: BrickWall },
-  { id: 'door', label: 'Door', shortcut: 'D', Icon: DoorOpen },
-  { id: 'window', label: 'Window', shortcut: 'N', Icon: AppWindow },
-  { id: 'label', label: 'Label', shortcut: 'T', Icon: Type },
-  { id: 'measure', label: 'Measure', shortcut: 'M', Icon: Ruler },
+  {
+    id: 'select',
+    label: 'Select',
+    shortcut: 'V',
+    description: 'Select, move, and edit walls, openings, labels, symbols & runs. Drag on empty canvas to box-select.',
+    Icon: MousePointer2,
+  },
+  {
+    id: 'wall',
+    label: 'Wall',
+    shortcut: 'W',
+    description: 'Draw walls — click to place points, it chains automatically. Enter/double-click to finish, Shift for a free angle.',
+    Icon: BrickWall,
+  },
+  {
+    id: 'door',
+    label: 'Door',
+    shortcut: 'D',
+    description: 'Place a door — hover over a wall to preview it, then click to place.',
+    Icon: DoorOpen,
+  },
+  {
+    id: 'window',
+    label: 'Window',
+    shortcut: 'N',
+    description: 'Place a window — hover over a wall to preview it, then click to place.',
+    Icon: AppWindow,
+  },
+  {
+    id: 'label',
+    label: 'Label',
+    shortcut: 'T',
+    description: 'Add a text label — click to place, type, Enter to confirm or Esc to cancel.',
+    Icon: Type,
+  },
+  {
+    id: 'measure',
+    label: 'Measure',
+    shortcut: 'M',
+    description: 'Measure a distance — click two points to see a temporary dimension line.',
+    Icon: Ruler,
+  },
 ];
 
 function ToolButton({ active, title, onClick, Icon }: { active: boolean; title: string; onClick: () => void; Icon: LucideIcon }) {
@@ -70,8 +107,14 @@ export function Toolbar() {
   if (isArchitectural) {
     return (
       <div className="flex w-14 flex-col items-center gap-1 border-r border-gray-200 bg-white py-3">
-        {ARCHITECTURAL_TOOLS.map(({ id, label, shortcut, Icon }) => (
-          <ToolButton key={id} active={activeTool === id} title={`${label} (${shortcut})`} onClick={() => setActiveTool(id)} Icon={Icon} />
+        {ARCHITECTURAL_TOOLS.map(({ id, label, shortcut, description, Icon }) => (
+          <ToolButton
+            key={id}
+            active={activeTool === id}
+            title={`${label} (${shortcut}) — ${description}`}
+            onClick={() => setActiveTool(id)}
+            Icon={Icon}
+          />
         ))}
       </div>
     );
@@ -79,15 +122,28 @@ export function Toolbar() {
 
   const catalog = symbolCatalogFor(activeLayer.kind);
   const activeEntry = catalog.find((e) => e.type === activeSymbolType);
+  // `isArchitectural` above already returned early for the architectural
+  // layer, so `activeLayer.kind` here is always one of the fixture kinds —
+  // narrow the type to match `RUN_TYPE_BY_LAYER_KIND`'s key set.
+  const runType = RUN_TYPE_BY_LAYER_KIND[activeLayer.kind as Exclude<typeof activeLayer.kind, 'architectural'>];
 
   return (
     <div className="relative flex w-14 flex-col items-center gap-1 border-r border-gray-200 bg-white py-3">
-      <ToolButton active={activeTool === 'select'} title="Select (V)" onClick={() => setActiveTool('select')} Icon={MousePointer2} />
+      <ToolButton
+        active={activeTool === 'select'}
+        title="Select (V) — select, move, and edit this layer's symbols & runs. Drag empty canvas to box-select."
+        onClick={() => setActiveTool('select')}
+        Icon={MousePointer2}
+      />
 
       <div className="relative">
         <button
           type="button"
-          title={activeEntry ? `Symbol: ${activeEntry.label}` : 'Symbol'}
+          title={
+            activeEntry
+              ? `Symbol: ${activeEntry.label} — click to change type, then click the canvas to place one`
+              : 'Symbol — click to pick a fixture type, then click the canvas to place it'
+          }
           aria-pressed={activeTool === 'symbol'}
           onClick={() => {
             setActiveTool('symbol');
@@ -106,6 +162,11 @@ export function Toolbar() {
               <button
                 key={entry.type}
                 type="button"
+                title={
+                  entry.wallMounted
+                    ? `${entry.label} — snaps to and slides along the nearest wall`
+                    : `${entry.label} — click anywhere in the room to place it`
+                }
                 onClick={() => {
                   setActiveSymbolType(entry.type);
                   setActiveTool('symbol');
@@ -123,7 +184,14 @@ export function Toolbar() {
         )}
       </div>
 
-      <ToolButton active={activeTool === 'run'} title="Run: draw a circuit/pipe line" onClick={() => setActiveTool('run')} Icon={Cable} />
+      {runType && (
+        <ToolButton
+          active={activeTool === 'run'}
+          title={`Run: draw a ${RUN_TYPE_LABELS[runType]} line — click to add points, Enter or double-click to finish (saved automatically even if you switch tools)`}
+          onClick={() => setActiveTool('run')}
+          Icon={Cable}
+        />
+      )}
     </div>
   );
 }

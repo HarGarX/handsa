@@ -22,14 +22,18 @@ export function LayerBar() {
               type="button"
               onClick={() => setActiveLayer(layer.id)}
               className="flex items-center gap-1.5"
-              title={`Switch to ${layer.name}`}
+              title={`Switch to ${layer.name} — its tools appear in the left toolbar and its content becomes editable`}
             >
               <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: layer.color }} />
               {layer.name}
             </button>
             <button
               type="button"
-              title={layer.visible ? 'Hide this layer when inactive' : 'Show this layer when inactive'}
+              title={
+                layer.visible
+                  ? 'Hide this layer when it isn\'t active (it still shows normally while you\'re working on it)'
+                  : 'Show this layer as a dimmed reference underlay when a different layer is active'
+              }
               onClick={() => setLayerVisibility(layer.id, !layer.visible)}
               className="flex h-5 w-5 items-center justify-center rounded text-gray-400 hover:bg-gray-200 hover:text-gray-700"
             >

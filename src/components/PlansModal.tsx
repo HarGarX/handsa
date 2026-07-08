@@ -28,6 +28,7 @@ export function PlansModal() {
           <h2 className="text-sm font-semibold text-gray-900">My Plans</h2>
           <button
             type="button"
+            title="Close"
             onClick={() => setShow(false)}
             className="flex h-6 w-6 items-center justify-center rounded text-gray-400 hover:bg-gray-100"
           >
@@ -37,6 +38,7 @@ export function PlansModal() {
 
         <button
           type="button"
+          title="Create a new, empty plan and switch to it"
           onClick={newPlan}
           className="flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-gray-300 py-2 text-sm text-gray-600 hover:bg-gray-50"
         >
@@ -53,7 +55,12 @@ export function PlansModal() {
                 p.id === currentPlanId ? 'border-blue-300 bg-blue-50' : 'border-gray-100 hover:bg-gray-50'
               }`}
             >
-              <button type="button" className="flex-1 truncate text-left text-sm text-gray-800" onClick={() => switchPlan(p.id)}>
+              <button
+                type="button"
+                title={p.id === currentPlanId ? 'Currently open plan' : `Switch to "${p.name}"`}
+                className="flex-1 truncate text-left text-sm text-gray-800"
+                onClick={() => switchPlan(p.id)}
+              >
                 {p.name}
                 <div className="text-[10px] font-normal text-gray-400">
                   {new Date(p.updatedAt).toLocaleString()}
@@ -61,7 +68,7 @@ export function PlansModal() {
               </button>
               <button
                 type="button"
-                title="Duplicate"
+                title="Duplicate this plan as a new copy"
                 onClick={() => {
                   if (p.id !== currentPlanId) switchPlan(p.id);
                   duplicatePlan();
@@ -72,7 +79,7 @@ export function PlansModal() {
               </button>
               <button
                 type="button"
-                title="Delete"
+                title="Delete this plan permanently"
                 onClick={() => {
                   if (window.confirm(`Delete plan "${p.name}"? This cannot be undone.`)) deletePlan(p.id);
                 }}

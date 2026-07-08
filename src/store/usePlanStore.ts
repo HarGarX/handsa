@@ -28,6 +28,22 @@ function touchedNow(plan: Plan): Plan {
   return { ...plan, updatedAt: new Date().toISOString() };
 }
 
+/**
+ * Runs (circuit/pipe polylines) don't commit anything until the user
+ * explicitly finishes the chain (Enter, double-click, or Escape-to-cancel) —
+ * unlike walls, which commit a real `Wall` on every click. That means
+ * switching tools or layers mid-draw used to silently discard whatever had
+ * been clicked so far, with no warning. Call this before any action that
+ * resets `interaction` (tool switch, layer switch, switching plans) so a
+ * draft with at least two points is saved as a real `Run` instead of lost.
+ */
+function finalizePendingRunDraft(get: () => PlanStore): void {
+  const draft = get().interaction.runDraft;
+  if (draft && draft.points.length >= 2) {
+    get().addRun({ id: uuidv4(), layerId: draft.layerId, type: draft.type, points: draft.points });
+  }
+}
+
 function initialPlan(): Plan {
   const existingId = loadActivePlanId();
   if (existingId) {
@@ -385,6 +401,7 @@ export const usePlanStore = create<PlanStore>((set, get) => ({
 
   setActiveLayer: (layerId) => {
     get().cancelTransaction();
+    finalizePendingRunDraft(get);
     const { plan } = get();
     const layer = plan.layers.find((l) => l.id === layerId);
     const catalog = symbolCatalogFor(layer?.kind ?? 'architectural');
@@ -574,6 +591,7 @@ export const usePlanStore = create<PlanStore>((set, get) => ({
 
   setActiveTool: (tool) => {
     get().cancelTransaction();
+    finalizePendingRunDraft(get);
     set({ activeTool: tool, interaction: emptyInteraction, selection: [] });
   },
 
@@ -595,6 +613,7 @@ export const usePlanStore = create<PlanStore>((set, get) => ({
   refreshPlansIndex: () => set({ plansIndex: loadPlansIndex() }),
 
   newPlan: () => {
+    finalizePendingRunDraft(get);
     const fresh = createEmptyPlan(uuidv4(), 'Untitled Plan');
     savePlan(fresh);
     saveActivePlanId(fresh.id);
@@ -613,6 +632,7 @@ export const usePlanStore = create<PlanStore>((set, get) => ({
   },
 
   duplicatePlan: () => {
+    finalizePendingRunDraft(get);
     const { plan } = get();
     const now = new Date().toISOString();
     const copy: Plan = { ...deepClonePlan(plan), id: uuidv4(), name: `${plan.name} (copy)`, createdAt: now, updatedAt: now };
@@ -634,6 +654,7 @@ export const usePlanStore = create<PlanStore>((set, get) => ({
   switchPlan: (id) => {
     const target = loadPlan(id);
     if (!target) return;
+    finalizePendingRunDraft(get);
     saveActivePlanId(id);
     set({
       plan: target,
@@ -649,6 +670,7 @@ export const usePlanStore = create<PlanStore>((set, get) => ({
   },
 
   deletePlan: (id) => {
+    finalizePendingRunDraft(get);
     const { plan, plansIndex } = get();
     deletePlanFromStorage(id);
     const remainingIndex = plansIndex.filter((p) => p.id !== id);
@@ -693,6 +715,7 @@ export const usePlanStore = create<PlanStore>((set, get) => ({
   },
 
   importPlan: (plan) => {
+    finalizePendingRunDraft(get);
     savePlan(plan);
     saveActivePlanId(plan.id);
     set({
