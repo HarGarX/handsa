@@ -1,26 +1,20 @@
-import { TopBar } from './components/TopBar';
-import { LayerBar } from './components/LayerBar';
-import { Toolbar } from './components/Toolbar';
-import { Canvas } from './components/Canvas';
-import { PropertiesPanel } from './components/PropertiesPanel';
-import { PlansModal } from './components/PlansModal';
-import { ShortcutModal } from './components/ShortcutModal';
-import { Toast } from './components/Toast';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { LandingPage } from './pages/LandingPage';
+import { LoginPage } from './pages/LoginPage';
+import { RegisterPage } from './pages/RegisterPage';
+import { EditorPage } from './pages/EditorPage';
 
 function App() {
   return (
-    <div className="flex h-screen w-screen flex-col overflow-hidden bg-gray-100">
-      <TopBar />
-      <LayerBar />
-      <div className="flex min-h-0 flex-1">
-        <Toolbar />
-        <Canvas />
-        <PropertiesPanel />
-      </div>
-      <PlansModal />
-      <ShortcutModal />
-      <Toast />
-    </div>
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<LandingPage />} />
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/register" element={<RegisterPage />} />
+        {/* Never gated: a guest already has full access to everything the app does. */}
+        <Route path="/app" element={<EditorPage />} />
+      </Routes>
+    </BrowserRouter>
   );
 }
 

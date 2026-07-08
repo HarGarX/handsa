@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
 import type { Label, Opening, PlacedSymbol, Plan, Point, Run, SymbolType, Wall } from '../types/plan';
 import { ARCHITECTURAL_LAYER_ID, createEmptyPlan } from '../types/plan';
+import { createSamplePlan } from '../lib/samplePlan';
 import type { Viewport } from '../geometry/viewport';
 import { clampScale, zoomAt as geomZoomAt, panBy as geomPanBy, fitToPoints } from '../geometry/viewport';
 import type { EndpointRef } from '../geometry/endpoints';
@@ -60,7 +61,10 @@ function initialPlan(): Plan {
       if (p) return p;
     }
   }
-  const fresh = createEmptyPlan(uuidv4(), 'Untitled Plan');
+  // A genuinely first-time visitor (no saved plans at all) sees a small
+  // pre-furnished sample instead of a blank canvas — see samplePlan.ts.
+  // It's a normal plan afterward: rename, edit, or delete it like any other.
+  const fresh = index.length === 0 ? createSamplePlan() : createEmptyPlan(uuidv4(), 'Untitled Plan');
   savePlan(fresh);
   saveActivePlanId(fresh.id);
   return fresh;
@@ -109,6 +113,15 @@ export interface PlanStore {
   interaction: InteractionState;
   propertiesPanelCollapsed: boolean;
   plansIndex: PlanSummary[];
+  /**
+   * True only if there were no saved plans *before* this store initialized.
+   * `initialPlan()` always creates and saves a plan (sample or empty) the
+   * first time the store loads, which would otherwise make `plansIndex`
+   * non-empty by the time anything reads it — this flag captures the
+   * pre-init state instead, so the landing page can tell a genuinely new
+   * visitor from a returning one.
+   */
+  isFirstVisit: boolean;
   showPlansModal: boolean;
   showShortcutModal: boolean;
   toastMessage: string | null;
@@ -198,6 +211,10 @@ export interface PlanStore {
   importPlan: (plan: Plan) => void;
 }
 
+// Captured before `initialPlan()` runs (and saves its result), so it
+// reflects whether anything was actually saved prior to this page load.
+const wasFirstVisit = loadPlansIndex().length === 0 && loadActivePlanId() === null;
+
 export const usePlanStore = create<PlanStore>((set, get) => ({
   plan: initialPlan(),
   pendingBase: null,
@@ -218,6 +235,7 @@ export const usePlanStore = create<PlanStore>((set, get) => ({
   interaction: emptyInteraction,
   propertiesPanelCollapsed: false,
   plansIndex: loadPlansIndex(),
+  isFirstVisit: wasFirstVisit,
   showPlansModal: false,
   showShortcutModal: false,
   toastMessage: null,

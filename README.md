@@ -19,6 +19,9 @@ npm run build     # type-check (tsc -b) + production build
 npm test          # run the Vitest geometry test suite (or: npx vitest run)
 ```
 
+The dev server opens to a landing page (`/`) — click "Continue as guest" (or
+log in/sign up, both fake, see Phase 6) to reach the editor itself at `/app`.
+
 ## Architecture overview
 
 ```
@@ -361,6 +364,39 @@ mutation that deliberately bypasses undo history — it's a view preference
 you're persisting, not a content edit, and it shouldn't cost you a redo step
 you actually cared about.
 
+### Marketing site & fake auth
+
+`react-router-dom` wraps the app in four routes — `/` (`LandingPage`),
+`/login`, `/register`, and `/app` (`EditorPage`, the entire editor described
+above, unchanged). `/app` is never gated: a guest already has full access to
+everything the app does, so there's nothing to protect it from.
+
+- **`useAuthStore`** is a second, deliberately separate Zustand store
+  (`isAuthed`, `displayName`, `isGuest`, persisted under its own
+  `blueprint.auth` localStorage key). "Logging in" via `LoginPage`/
+  `RegisterPage` never contacts a network — there's nothing to authenticate
+  against — it just stores a display name and routes to `/app`; "continuing
+  as guest" does the same minus the name (`displayName: 'Guest'`). Both pages
+  disclose this in a line under the form, and both offer "skip this, continue
+  as guest" as an equally-valid alternative to submitting. Logging out clears
+  only this store — it can't touch `usePlanStore`'s data, because plans were
+  never tied to an account in the first place.
+- **Sample plan for first-time guests** (`lib/samplePlan.ts`): a small
+  pre-furnished two-room apartment (living room with a sofa/TV-stand/floor
+  lamp, bedroom with a bed/wardrobe, a few fixtures on other layers) that
+  `initialPlan()` loads instead of a blank canvas — but only the very first
+  time, tracked by `isFirstVisit`. That flag has to be captured *before*
+  `initialPlan()` runs, not derived from `plansIndex.length > 0` afterward:
+  `initialPlan()` always saves whatever it creates (sample or empty)
+  immediately, so by the time anything reads `plansIndex` it's already
+  non-empty regardless of whether this was truly a first visit — the
+  landing page's "Get started" vs. "Continue editing" copy would otherwise
+  always show the latter. `isFirstVisit` is computed from the raw
+  `localStorage` state at module load, before that save happens.
+- **`LandingPage`** picks its primary CTA from `isFirstVisit` and
+  `useAuthStore`'s `displayName` together, so a returning guest sees
+  "Continue editing" instead of "Get started" the moment they're back.
+
 ### Run drafts never get silently discarded
 
 Walls commit a real `Wall` to the plan on every click of the chain, so
@@ -481,6 +517,14 @@ hover.
 - **Dining tables, chairs, and kitchen islands aren't suggested** — every v1
   suggestion type is wall-hugging, and these are usually centered in a room
   instead, which needs a different placement rule (see Roadmap Phase 4).
+- **Fake accounts are per-browser, not per-person** — "logging in" only sets
+  a display name in this browser's `localStorage`; opening the app in a
+  different browser or device shows a fresh guest, since there's no real
+  session to share across them. This is the deliberate scope of the fake
+  auth shell (see Roadmap Phase 6), not a bug to fix within it.
+- **No first-run onboarding tour** — a first-time guest gets a pre-furnished
+  sample plan to explore instead of a blank canvas, but there's no guided
+  walkthrough pointing at specific features yet (see Roadmap Phase 6).
 
 ## Roadmap
 
@@ -647,64 +691,58 @@ Deliberately deferred, matching the original scope call:
 
 ### Phase 6 — Marketing site & account shell (landing page, fake auth, guest mode)
 
-Right now the editor has no discovery layer — the only way to use Blueprint
-is to already have the app open. The idea: wrap the existing editor in a
-small marketing shell — a landing page that explains what Blueprint is and
-why someone would want it, plus login/register screens that let a visitor
-either "sign up" for a cosmetic, fully-local account or skip straight in as
-a guest. This is explicitly **not** a real accounts system: no user data is
-collected or stored on any server today, and the fake login only remembers
-a display name locally, purely so the shell feels complete — the real point
-is leaving a clean seam that a real backend + real accounts could slot into
-*later*, without building auth infrastructure the app has no other use for
-yet. Doesn't have to wait for Phase 5; it's independent of the CAD engine
-itself.
+✅ **Shipped**, except the first-run in-editor hint sequence, deferred (see
+below). See "Marketing site & fake auth" above for how it works. The editor
+previously had no discovery layer — the only way to use Blueprint was to
+already have the app open. This wraps it in a small marketing shell: a
+landing page that explains what Blueprint is, plus login/register screens
+that let a visitor either "sign up" for a cosmetic, fully-local account or
+skip straight in as a guest. Explicitly **not** a real accounts system: no
+user data is collected or stored on any server, and the fake login only
+remembers a display name locally — the real point is leaving a clean seam
+that a real backend + real accounts could slot into *later* (see "Real
+accounts + cloud sync" below), without building auth infrastructure the app
+has no other use for yet.
 
-Concrete pieces:
+What shipped:
 
-- **Routing**: the one new dependency this phase needs is `react-router-dom`,
-  with four routes — `/` (landing), `/login`, `/register`, and `/app` (the
-  existing editor, unchanged). No route is actually gated: `/app` stays
-  directly reachable, by design, since a guest already has full access to
-  everything the app does.
-- **`LandingPage`**: a hero section (what Blueprint is, one-line pitch, a
-  screenshot or embedded mini-preview of the editor), feature-highlight
-  blocks pulled from what's already shipped (layers, wall-joint fill, the
-  Placement Assistant, PNG/JSON export), a short "how it works" strip, and a
-  trust/privacy callout that's genuinely true today, not just copy: *"100%
-  local — your plans live in this browser's storage and are never uploaded
-  anywhere."* CTAs: "Continue as guest" (straight to `/app`), "Log in", "Sign
-  up." If `localStorage` already has saved plans (detectable via the
-  existing `plansIndex`), the primary CTA reads "Continue editing" instead
-  of "Get started" — a small, cheap touch since that data already exists.
-- **`LoginPage` / `RegisterPage`**: normal-looking email + password forms
-  (register also asks for a display name), but submitting does nothing
-  except store `{ displayName }` in a new, small, separate `useAuthStore`
-  and route to `/app` — no server validation because there's nothing to
-  validate against or send to. Each page says so in a small disclosure line
-  under the form (*"This is a demo account — nothing is sent anywhere, and
-  your name is only remembered on this device."*) and offers a "Skip this,
-  continue as guest" link as an equally valid alternative to submitting.
-- **`useAuthStore`**: a tiny, separate Zustand store (`isAuthed`,
-  `displayName`, `login()`, `logout()`, `continueAsGuest()`), persisted under
-  its own localStorage key. Kept deliberately separate from `usePlanStore`
-  so it's obvious at a glance that authentication state and plan data are
-  two unrelated concerns — logging out can never touch a user's saved plans,
-  because plans were never tied to an account to begin with.
-- **TopBar acknowledgement**: once "logged in" (or continuing as guest), a
-  small corner element shows the display name (or "Guest") with a "Log out"
-  action that clears `useAuthStore` and returns to `/`. Purely cosmetic —
-  it doesn't delete or hide any plans.
-- **First-run touches that make the shell actually earn its keep**, rather
-  than just existing:
-  - A **preloaded sample plan** (a small furnished apartment using several
-    layers) so a fresh guest sees a real, populated example immediately
-    instead of a blank canvas — the fastest way to make "how this helps you"
-    obvious without writing more marketing copy.
-  - A **first-run hint sequence** in the editor itself for a visitor's first
-    session (e.g. pointing at the Layer bar and the Placement Assistant),
-    building on this session's tooltip/`DraftHint` work rather than
-    introducing a new explainer mechanism.
+- **Routing** via `react-router-dom` (the one new dependency this phase
+  needed): `/` (landing), `/login`, `/register`, `/app` (the editor,
+  unchanged, never gated).
+- **`LandingPage`**: hero pitch, a feature-highlight grid pulled from what's
+  already shipped, and a trust/privacy callout that's genuinely true today —
+  *"Your plans never leave your browser."* The primary CTA reads "Get
+  started" for a first-time visitor and "Continue editing" for anyone
+  returning, driven by `isFirstVisit`.
+- **`LoginPage` / `RegisterPage`** (sharing an `AuthShell` wrapper): normal-
+  looking forms that store nothing but a display name, say so in an on-page
+  disclosure line, and offer "skip this, continue as guest" as an equally
+  valid alternative to submitting.
+- **`useAuthStore`**: separate from `usePlanStore`, persisted under its own
+  `blueprint.auth` key — confirmed via a direct localStorage check during
+  testing that it only ever contains `{ isAuthed, displayName }`, never the
+  email or password typed into the form.
+- **TopBar acknowledgement**: a display name (or "Guest") plus a "Log out"
+  action, once set.
+- **Sample plan for first-time guests** (`lib/samplePlan.ts`): a small
+  furnished two-room apartment loaded instead of a blank canvas on a
+  genuinely first visit.
+
+A real bug surfaced and got fixed while wiring up the landing page's smart
+CTA, not deferred: the original design called for basing "Get
+started"/"Continue editing" on whether `plansIndex` was non-empty — but
+`initialPlan()` always saves whatever it creates (sample or empty)
+immediately, so `plansIndex` is *never* actually empty by the time anything
+reads it, even on a true first visit. Fixed with a dedicated `isFirstVisit`
+flag captured from raw `localStorage` before that save happens (see
+"Marketing site & fake auth" above for the detail).
+
+Deliberately deferred:
+
+- **First-run hint sequence** in the editor itself (e.g. pointing at the
+  Layer bar and the Placement Assistant) — the sample plan already does the
+  "show, don't tell" job for a v1; a guided tour is a follow-up, not a
+  blocker.
 
 Deliberately out of scope for v1 (the actual point of calling this "fake"
 auth):

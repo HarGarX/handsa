@@ -1,12 +1,18 @@
 import { useRef, useState } from 'react';
-import { Undo2, Redo2, Download, Upload, FolderOpen, HelpCircle, Image as ImageIcon, Magnet, Square, Circle } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Undo2, Redo2, Download, Upload, FolderOpen, HelpCircle, Image as ImageIcon, LogOut, Magnet, Square, Circle, User } from 'lucide-react';
 import { usePlanStore } from '../store/usePlanStore';
+import { useAuthStore } from '../store/useAuthStore';
 import type { JointStyle, SnapIncrement, UnitSystem } from '../store/types';
 import { exportPlanJson, exportPlanPng, readPlanJsonFile, InvalidPlanFileError } from '../lib/exportImport';
 
 const PRESET_SCALES = [50, 100, 200];
 
 export function TopBar() {
+  const navigate = useNavigate();
+  const displayName = useAuthStore((s) => s.displayName);
+  const isGuest = useAuthStore((s) => s.isGuest);
+  const logout = useAuthStore((s) => s.logout);
   const plan = usePlanStore((s) => s.plan);
   const past = usePlanStore((s) => s.past);
   const future = usePlanStore((s) => s.future);
@@ -270,6 +276,30 @@ export function TopBar() {
       >
         <HelpCircle size={18} />
       </button>
+
+      {displayName && (
+        <>
+          <div className="h-6 w-px bg-gray-200" />
+          <div
+            className="flex items-center gap-1.5 rounded px-2 py-1.5 text-sm text-gray-600"
+            title={isGuest ? "You're browsing as a guest — nothing is tied to an account." : `Signed in as ${displayName} (demo only — nothing is sent anywhere)`}
+          >
+            <User size={15} />
+            {isGuest ? 'Guest' : displayName}
+          </div>
+          <button
+            type="button"
+            title="Log out (this only clears the demo sign-in — your plans stay right here in this browser)"
+            onClick={() => {
+              logout();
+              navigate('/');
+            }}
+            className="flex h-8 w-8 items-center justify-center rounded text-gray-600 hover:bg-gray-100"
+          >
+            <LogOut size={16} />
+          </button>
+        </>
+      )}
     </div>
   );
 }
