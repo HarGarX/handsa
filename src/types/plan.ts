@@ -77,7 +77,10 @@ export type SymbolType =
   | 'counter'
   | 'island'
   | 'wardrobe'
-  | 'desk';
+  | 'desk'
+  | 'tv-stand'
+  | 'floor-lamp'
+  | 'wall-art';
 
 export interface PlacedSymbol {
   id: string;

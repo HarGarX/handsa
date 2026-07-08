@@ -24,6 +24,21 @@ export function polygonAreaM2(points: Point[]): number {
   return polygonArea(points) / 10_000; // 1 m^2 = 10,000 cm^2
 }
 
+/** Standard ray-casting point-in-polygon test (works for either winding order). */
+export function pointInPolygon(point: Point, points: Point[]): boolean {
+  let inside = false;
+  const n = points.length;
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    const pi = points[i]!;
+    const pj = points[j]!;
+    const intersects =
+      pi.y > point.y !== pj.y > point.y &&
+      point.x < ((pj.x - pi.x) * (point.y - pi.y)) / (pj.y - pi.y) + pi.x;
+    if (intersects) inside = !inside;
+  }
+  return inside;
+}
+
 export function polygonCentroid(points: Point[]): Point {
   let cx = 0;
   let cy = 0;

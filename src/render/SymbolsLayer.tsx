@@ -209,6 +209,28 @@ export function SymbolIcon({
           <rect x={-width * 0.15} y={-halfH + depth * 0.12} width={width * 0.3} height={depth * 0.3} />
         </g>
       );
+    case 'tv-stand':
+      return (
+        <g stroke={color} strokeWidth={strokeWidth} fill="none">
+          <rect x={-halfW} y={-halfH} width={width} height={depth} />
+          <rect x={-halfW * 0.85} y={-halfH * 0.5} width={width * 0.7} height={depth * 0.28} />
+        </g>
+      );
+    case 'floor-lamp':
+      return (
+        <g stroke={color} strokeWidth={strokeWidth} fill="none">
+          <circle cx={0} cy={0} r={halfW * 0.15} fill={color} />
+          <path d={`M ${-halfW * 0.6} ${-halfH * 0.6} L ${halfW * 0.6} ${-halfH * 0.6} L ${halfW * 0.85} ${halfH * 0.7} L ${-halfW * 0.85} ${halfH * 0.7} Z`} />
+        </g>
+      );
+    case 'wall-art':
+      return (
+        <g stroke={color} strokeWidth={strokeWidth} fill="none">
+          <rect x={-halfW} y={-halfH} width={width} height={depth} />
+          <line x1={-halfW * 0.6} y1={0} x2={halfW * 0.2} y2={0} />
+          <line x1={-halfW * 0.2} y1={-halfH * 0.6} x2={halfW * 0.6} y2={halfH * 0.6} />
+        </g>
+      );
     default:
       return <circle cx={0} cy={0} r={Math.min(halfW, halfH)} stroke={color} strokeWidth={strokeWidth} fill="none" />;
   }

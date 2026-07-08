@@ -58,6 +58,9 @@ export const SYMBOL_CATALOG: Record<Exclude<LayerKind, 'architectural'>, SymbolC
     furniture('island', 'Island', 150, 90),
     furniture('wardrobe', 'Wardrobe', 120, 60, true),
     furniture('desk', 'Desk', 120, 60),
+    furniture('tv-stand', 'TV stand', 120, 40, true),
+    furniture('floor-lamp', 'Floor lamp', 35, 35),
+    furniture('wall-art', 'Wall art', 80, 5, true),
   ],
 };
 

@@ -13,6 +13,7 @@ import { SymbolsLayer } from '../render/SymbolsLayer';
 import { RunsLayer } from '../render/RunsLayer';
 import { SelectionOverlay } from '../render/SelectionOverlay';
 import { SymbolResizeOverlay } from '../render/SymbolResizeOverlay';
+import { SuggestionOverlay } from '../render/SuggestionOverlay';
 import { ToolPreviewLayer } from '../render/ToolPreviewLayer';
 import { LabelEditorOverlay } from './LabelEditorOverlay';
 import { ZoomControls } from './ZoomControls';
@@ -295,6 +296,10 @@ export function Canvas() {
     const layer = plan.layers.find((l) => l.id === activeLayerId);
     return !layer || layer.kind === 'architectural';
   }, [plan.layers, activeLayerId]);
+  const isFurnitureActive = useMemo(() => {
+    const layer = plan.layers.find((l) => l.id === activeLayerId);
+    return layer?.kind === 'furniture';
+  }, [plan.layers, activeLayerId]);
 
   // A layer being the active one always renders (you need to see what you're
   // editing), independent of its own `visible` flag; that flag only controls
@@ -357,6 +362,16 @@ export function Canvas() {
                 />
               </g>
             ))}
+          <SuggestionOverlay
+            active={isFurnitureActive && activeTool === 'select' && !interaction.isPanning}
+            cursorWorld={interaction.cursorWorld}
+            walls={plan.walls}
+            openings={plan.openings}
+            symbols={plan.symbols}
+            layers={plan.layers}
+            activeLayerId={activeLayerId}
+            scale={viewport.scale}
+          />
           <SelectionOverlay selectedWalls={selectedWalls} scale={viewport.scale} />
           <SymbolResizeOverlay symbol={singleSelectedSymbol} walls={plan.walls} scale={viewport.scale} />
           <ToolPreviewLayer

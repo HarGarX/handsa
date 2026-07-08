@@ -243,6 +243,67 @@ bed and a king bed shouldn't need separate catalog entries:
   focused, which benefits every numeric field in the panel (wall length
   during an endpoint drag, not just furniture resize).
 
+### Placement Assistant
+
+A deterministic rules/scoring engine, not an AI call — while the Furniture
+layer and Select tool are both active, hovering a detected room surfaces a
+handful of suggested placements (sofa, TV stand, bed, wardrobe, desk, wall
+art, floor lamp), each a dashed ghost with a small "+" badge; hover the badge
+for a one-line rationale (a native `<title>` tooltip, same pattern as every
+other control), click it to commit as a real `PlacedSymbol` via the existing
+`addSymbol` — fully undoable, exactly like a manual placement.
+
+- **`geometry/placementSuggestions.ts`** (pure, unit-tested like the rest of
+  `geometry/`) is the whole engine. `roomBoundingWalls()` matches each edge of
+  a `detectRooms()` polygon back to the original wall it traces (a room edge
+  is always a sub-span of exactly one wall's `[0,1]` range, split at
+  T-junctions/crossings same as the wall graph), giving each bounding wall
+  segment an inward-pointing normal. From there:
+  - **Clearance & traffic flow**: every door gets a conservative rectangular
+    exclusion zone (a walkway lane, widened to the door's own width if it
+    swings into this room) that candidates are checked against.
+  - **Long-wall preference**: sofa/sectional/bed/desk (free-placed, offset
+    inward from the wall by half their depth) and TV stand/wardrobe/wall art
+    (wall-mounted, sitting flush on the wall line like an outlet) all score
+    candidate wall segments by their longest *uninterrupted* clear run — free
+    of doors, windows, and anything already placed on that wall.
+  - **Focal-point orientation**: `findFocalSegment()` picks the room's main
+    window wall (most total window width) or, absent windows, the wall
+    opposite the main entry door; sofa/sectional are scored higher for facing
+    it, and the TV stand is preferentially placed *on* it.
+  - **Lighting-gap awareness**: the floor lamp suggestion checks the
+    Lighting layer's already-placed ceiling/wall lights (cross-layer, made
+    possible by every layer sharing the same `Plan.symbols`) and favors
+    whichever room corner sits farthest from existing light.
+  - **Open-wall preference**: wall art scores a segment's longest clear run
+    the same way long-wall furniture does, but keyed to a much thinner
+    footprint so it doesn't compete for the same real estate.
+- Rotation math for a free-placed, wall-hugging item is derived directly from
+  its wall segment's inward normal `n`: `rotationDeg = atan2(-n.x, n.y) *
+  180/π` places the item's local **-y edge** ("back") against the wall and
+  local **+y edge** ("front") facing the room — consistent with how the
+  existing furniture icons are drawn (e.g. the sofa's back cushions sit at
+  local `-y`).
+- Obstacle/clearance checks are deliberately conservative approximations, not
+  exact geometry (a candidate's half-diagonal inflates the exclusion zone; a
+  circle-circle test approximates furniture-vs-furniture overlap) — the right
+  tradeoff for suggestions the user reviews and can decline, not a hard
+  constraint a wrong answer could get stuck behind.
+- **`render/SuggestionOverlay.tsx`** hosts a *sticky* hover state: a
+  suggestion's own ghost/badge sits outside the room's strict polygon just
+  often enough (offset out from the wall) that a naive "cursor inside the
+  polygon" test would hide the whole overlay the instant the user moved
+  toward a badge to click it — the classic hover-menu-closes-before-you-can-
+  click-it problem. Fixed by keeping the previously-hovered room "stuck" as
+  long as the cursor stays within its bounding box padded by a generous
+  150cm, only actually clearing once the cursor leaves that padded zone or a
+  *different* room is entered directly.
+- Two decor `SymbolType`s that didn't exist before this feature — `tv-stand`
+  and `wall-art` (plus `floor-lamp`, free-placed) — were added to the
+  Furniture catalog specifically so the assistant would have something to
+  suggest beyond the Phase 3 furniture set; they're placeable manually via
+  the Symbol tool too, like any other furniture type.
+
 ### Editing conveniences (units, scale, marquee, nudge, copy/paste)
 
 - **Display units** (`unitSystem`, a store-level view preference like snap
@@ -407,6 +468,19 @@ hover.
   placed as separate symbols the user arranges themselves, not a single
   "table + 4 chairs" preset. Keeps the data model simple at the cost of a
   few extra clicks for a common arrangement.
+- **Placement Assistant suggestions use approximate, conservative collision
+  checks** — clearance zones and furniture-overlap tests use inflated
+  bounding circles/rectangles rather than exact polygon intersection, so an
+  occasional technically-fine spot near a zone's edge gets ruled out. The
+  right tradeoff for suggestions the user reviews and can decline, not a hard
+  constraint a wrong answer could get permanently stuck behind.
+- **The assistant suggests at most one placement per furniture type per
+  room** — accepting a suggested sofa won't offer a second sofa spot on
+  re-hover; placing further sofas (or anything else) manually via the Symbol
+  tool is unaffected.
+- **Dining tables, chairs, and kitchen islands aren't suggested** — every v1
+  suggestion type is wall-hugging, and these are usually centered in a room
+  instead, which needs a different placement rule (see Roadmap Phase 4).
 
 ## Roadmap
 
@@ -501,61 +575,59 @@ resize (shipped center-anchored instead) and compound furniture presets
 
 ### Phase 4 — Placement Assistant (furniture & decor suggestions)
 
-The idea: while working on the Furniture layer, hovering a detected room
-surfaces a handful of suggested placements — where a sofa, TV, floor lamp,
-or wall art would go by common interior-design conventions — each as a
-dashed ghost with a one-line rationale, one click to accept. Deliberately a
-**deterministic rules/scoring engine over the existing geometry**, not an AI
-call: it fits the "no backend, everything local and instant" shape of the
-rest of the app, gives explainable rationale for free (a rule fired, not a
-model's guess), and needs zero new infrastructure — every input it needs
-(room polygon, bounding walls, door/window positions *and swing arcs*,
-already-placed symbols on any layer) already exists in `Plan`. An LLM-backed
-"describe the vibe you want" mode could layer on top of this *later* as an
-optional enhancement once there's an appetite for a backend — see the
-share-link item below for the same tradeoff — but the rule engine has to
-exist first regardless, since it's what the AI mode would ultimately be
-steering.
+✅ **Shipped (v1 rule set).** See "Placement Assistant" above for how it
+works. Deliberately a **deterministic rules/scoring engine over the existing
+geometry**, not an AI call: it fits the "no backend, everything local and
+instant" shape of the rest of the app, gives explainable rationale for free
+(a rule fired, not a model's guess), and needed no new infrastructure beyond
+two small additions — every other input (room polygon, bounding walls,
+door/window positions *and swing arcs*, already-placed symbols on any layer)
+already existed on `Plan`. An LLM-backed "describe the vibe you want" mode
+could layer on top of this *later* as an optional enhancement once there's an
+appetite for a backend — see the share-link stretch idea below for the same
+tradeoff — but the rule engine had to exist first regardless, since it's what
+an AI mode would ultimately be steering.
 
-Concrete pieces:
+What shipped, mapped to the original v1 rule set:
 
-- **`geometry/placementSuggestions.ts`** (pure functions, unit-testable like
-  the rest of `geometry/`): given a `Room` (from the existing `detectRooms`),
-  its bounding walls + their openings, and the symbols already placed in it,
-  score candidate zones per furniture type and return
-  `{ type, position, rotation, score, rationale }[]`, sorted best-first.
-- **v1 rule set** (the "best practices" — each one directly checkable from
-  data already on `Plan`, no new fields required):
-  - *Clearance & traffic flow*: keep the door swing arc clear (we already
-    store `hinge`/`swing`, so the swept quarter-circle is computable) and
-    maintain a minimum walkway width between doors.
-  - *Long-wall preference*: sofas, beds, and wardrobes score higher against
-    the longest wall segment uninterrupted by a door or window.
-  - *Focal-point orientation*: seating scores higher when it faces the
-    room's largest window or the wall opposite the main entry — the
-    closest thing to a "focal point" derivable without a dedicated field.
-  - *Lighting-gap awareness* — a nice cross-layer payoff from the layer
-    system: a floor lamp suggestion checks the **Lighting layer's** already-
-    placed ceiling lights and is scored higher in a corner that's currently
-    far from any existing light source, rather than picking corners blindly.
-  - *Open-wall preference for art/shelves*: score a wall segment higher the
-    less of it is already occupied by a door, window, or another symbol's
-    footprint.
-- **`SuggestionOverlay`** (render component): dashed ghost outline + small
-  label per suggestion, shown only while hovering a room with the Furniture
-  layer active; click commits it as a real `PlacedSymbol` via the existing
-  `addSymbol`, exactly like a manual placement.
-- **Room-type awareness (later within this phase, not a hard prerequisite
-  for v1)**: without knowing a room is "a bedroom" vs. "a living room," v1
-  suggestions stay generic (seating/focal-point/clearance rules apply
-  everywhere) or infer intent from furniture already placed (a bed already
-  in the room *implies* bedroom-specific rules for what's suggested next,
-  e.g. nightstands). Explicit room-type tagging — the "Room metadata"
-  stretch idea below — would sharpen this further once it exists.
+- ✅ *Clearance & traffic flow* — every door in a room gets a conservative
+  rectangular exclusion zone (walkway lane, widened to the door's own width
+  when it swings inward) that every candidate is checked against.
+- ✅ *Long-wall preference* — sofa/sectional/bed/desk (free-placed) and TV
+  stand/wardrobe/wall art (wall-mounted) all score candidate walls by their
+  longest uninterrupted clear run.
+- ✅ *Focal-point orientation* — seating faces the room's main window wall,
+  or the wall opposite the main entry if there are no windows; the TV stand
+  is preferentially placed on that same focal wall.
+- ✅ *Lighting-gap awareness* — the floor lamp suggestion checks the
+  Lighting layer's already-placed ceiling/wall lights and favors whichever
+  room corner sits farthest from existing light.
+- ✅ *Open-wall preference for wall art* — scores a wall segment's longest
+  clear run the same way, keyed to a much thinner footprint.
+- Two new decor `SymbolType`s — `tv-stand` and `wall-art` (wall-mounted) plus
+  `floor-lamp` (free-placed) — were added to the Furniture catalog so the
+  assistant would have something to suggest beyond the Phase 3 furniture set;
+  all three are placeable manually via the Symbol tool too.
+- A real UX bug surfaced and got fixed during this phase, not deferred: a
+  suggestion's ghost/badge sits just outside the room's strict polygon often
+  enough (offset out from the wall) that hovering toward it to click would
+  cross back out of the polygon and hide the whole overlay a moment before
+  the click landed — classic hover-menu-closes-before-you-can-click-it. Fixed
+  with a sticky hover zone (see "Placement Assistant" above).
 
-Deliberately out of scope for v1: symmetric/paired composition rules (e.g.
-matching nightstands), an AI-backed natural-language mode, and anything
-that needs a room-type field that doesn't exist yet.
+Deliberately deferred, matching the original scope call:
+
+- **Room-type awareness** — without knowing a room is "a bedroom" vs. "a
+  living room," suggestions stay generic (the same rules apply everywhere)
+  rather than being tailored per room type. Explicit room-type tagging — the
+  "Room metadata" stretch idea below — would sharpen this once it exists.
+- **Dining table / chair / island suggestions** — these are usually centered
+  in a room rather than wall-hugging, which is a different placement rule
+  than the long-wall one every v1 type uses; left for a follow-up rule rather
+  than bolted onto the existing engine as a mismatched special case.
+- Symmetric/paired composition rules (e.g. matching nightstands), an
+  AI-backed natural-language mode, and anything needing a room-type field
+  that doesn't exist yet.
 
 ### Phase 5 — Professional export & multi-floor/3D
 
