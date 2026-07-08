@@ -263,7 +263,7 @@ bed and a king bed shouldn't need separate catalog entries:
   real architectural scale conventions. This is deliberately *not* a
   physical-print-DPI calculation (see the comment on `BASE_PX_PER_CM_AT_1_100`
   in `exportImport.tsx`) since the output is a PNG for on-screen viewing, not
-  a calibrated paper size; Phase 4's PDF export is where that distinction
+  a calibrated paper size; Phase 5's PDF export is where that distinction
   will actually matter. Output is clamped to 4000px on a side so a huge plan
   at a fine scale can't hang the browser.
 - **Rubber-band (marquee) multi-select**: dragging on empty canvas with the
@@ -451,7 +451,65 @@ Deliberately deferred (see "Known limitations" above): opposite-edge-anchored
 resize (shipped center-anchored instead) and compound furniture presets
 (a table+chairs group placed as one item).
 
-### Phase 4 — Professional export & multi-floor/3D
+### Phase 4 — Placement Assistant (furniture & decor suggestions)
+
+The idea: while working on the Furniture layer, hovering a detected room
+surfaces a handful of suggested placements — where a sofa, TV, floor lamp,
+or wall art would go by common interior-design conventions — each as a
+dashed ghost with a one-line rationale, one click to accept. Deliberately a
+**deterministic rules/scoring engine over the existing geometry**, not an AI
+call: it fits the "no backend, everything local and instant" shape of the
+rest of the app, gives explainable rationale for free (a rule fired, not a
+model's guess), and needs zero new infrastructure — every input it needs
+(room polygon, bounding walls, door/window positions *and swing arcs*,
+already-placed symbols on any layer) already exists in `Plan`. An LLM-backed
+"describe the vibe you want" mode could layer on top of this *later* as an
+optional enhancement once there's an appetite for a backend — see the
+share-link item below for the same tradeoff — but the rule engine has to
+exist first regardless, since it's what the AI mode would ultimately be
+steering.
+
+Concrete pieces:
+
+- **`geometry/placementSuggestions.ts`** (pure functions, unit-testable like
+  the rest of `geometry/`): given a `Room` (from the existing `detectRooms`),
+  its bounding walls + their openings, and the symbols already placed in it,
+  score candidate zones per furniture type and return
+  `{ type, position, rotation, score, rationale }[]`, sorted best-first.
+- **v1 rule set** (the "best practices" — each one directly checkable from
+  data already on `Plan`, no new fields required):
+  - *Clearance & traffic flow*: keep the door swing arc clear (we already
+    store `hinge`/`swing`, so the swept quarter-circle is computable) and
+    maintain a minimum walkway width between doors.
+  - *Long-wall preference*: sofas, beds, and wardrobes score higher against
+    the longest wall segment uninterrupted by a door or window.
+  - *Focal-point orientation*: seating scores higher when it faces the
+    room's largest window or the wall opposite the main entry — the
+    closest thing to a "focal point" derivable without a dedicated field.
+  - *Lighting-gap awareness* — a nice cross-layer payoff from the layer
+    system: a floor lamp suggestion checks the **Lighting layer's** already-
+    placed ceiling lights and is scored higher in a corner that's currently
+    far from any existing light source, rather than picking corners blindly.
+  - *Open-wall preference for art/shelves*: score a wall segment higher the
+    less of it is already occupied by a door, window, or another symbol's
+    footprint.
+- **`SuggestionOverlay`** (render component): dashed ghost outline + small
+  label per suggestion, shown only while hovering a room with the Furniture
+  layer active; click commits it as a real `PlacedSymbol` via the existing
+  `addSymbol`, exactly like a manual placement.
+- **Room-type awareness (later within this phase, not a hard prerequisite
+  for v1)**: without knowing a room is "a bedroom" vs. "a living room," v1
+  suggestions stay generic (seating/focal-point/clearance rules apply
+  everywhere) or infer intent from furniture already placed (a bed already
+  in the room *implies* bedroom-specific rules for what's suggested next,
+  e.g. nightstands). Explicit room-type tagging — the "Room metadata"
+  stretch idea below — would sharpen this further once it exists.
+
+Deliberately out of scope for v1: symmetric/paired composition rules (e.g.
+matching nightstands), an AI-backed natural-language mode, and anything
+that needs a room-type field that doesn't exist yet.
+
+### Phase 5 — Professional export & multi-floor/3D
 
 - **PDF export with a title block** (plan name, date, drawing scale, north
   arrow), reusing the existing static-SVG export path.
@@ -477,8 +535,10 @@ resize (shipped center-anchored instead) and compound furniture presets
 - **Wall types/materials** (load-bearing vs. partition, exterior vs.
   interior) with distinct hatch/fill styles — mostly a rendering + one new
   `Wall.kind` field.
-- **Room metadata** (name/type, flooring material) feeding into schedules
-  and future 3D material assignment.
+- **Room metadata** (name/type, flooring material) feeding into schedules,
+  future 3D material assignment, and sharper Placement Assistant rules
+  (Phase 4) once a room's declared type can steer which furniture it
+  suggests.
 - **Read-only share link** for a plan snapshot — would need *some* backend
   or a static-hosting trick (e.g. a shareable self-contained HTML export),
   since the app is currently 100% local-storage; worth scoping separately
