@@ -34,14 +34,17 @@ src/
                      wallGraph), joints (wall-joint fill caps, also built on
                      wallGraph), endpoints (coincident-endpoint / magnetism
                      lookups), wallShape (wall-rectangle-with-gaps geometry),
-                     placedSymbol (resolves a fixture's world position from
-                     its wall+t, mirroring how openings work), hitTest
-                     (click/hover hit-testing), grid, format.
+                     rect (axis-aligned + rotated-rectangle hit testing,
+                     world<->local rotation-frame conversion), placedSymbol
+                     (resolves a fixture's world position from its wall+t,
+                     mirroring how openings work; resize-handle positions),
+                     hitTest (click/hover hit-testing), grid, format.
                      Unit-tested in geometry/__tests__/.
   lib/symbolCatalog.ts  Pure data: which fixture types exist per layer kind,
-                     their labels, footprints, and whether they're
-                     wall-mounted — the single source the Toolbar's picker,
-                     the Symbol tool, and rendering all read from.
+                     their labels, footprints, whether they're wall-mounted,
+                     and whether they're resizable (furniture only) — the
+                     single source the Toolbar's picker, the Symbol tool,
+                     and rendering all read from.
   store/            One Zustand store (usePlanStore). `plan` is the single
                      serializable object (walls/openings/labels/layers/
                      symbols/runs + metadata) — everything else (viewport,
@@ -56,9 +59,10 @@ src/
                      components.
   render/            Presentational SVG components per entity type
                      (grid, walls, openings, labels, rooms, symbols, runs,
-                     selection handles, tool previews). All are
-                     `React.memo`'d and receive plain props so unaffected
-                     entities skip re-rendering during a drag.
+                     selection handles, furniture resize handles, tool
+                     previews). All are `React.memo`'d and receive plain
+                     props so unaffected entities skip re-rendering during
+                     a drag.
   components/        The app shell: Canvas (owns the <svg>, pointer/keyboard
                      wiring, pan/zoom), LayerBar (switch active layer, toggle
                      visibility), Toolbar (contextual: architectural tools vs.
@@ -93,12 +97,13 @@ interface Opening {
 }
 interface Label { id; position: Point; text: string; fontSize: number }
 
-interface Layer { id; name; kind: 'architectural' | 'electrical' | 'plumbing' | 'lighting-power-hvac'; color; visible }
+interface Layer { id; name; kind: 'architectural' | 'electrical' | 'plumbing' | 'lighting-power-hvac' | 'furniture'; color; visible }
 interface PlacedSymbol {
-  id; layerId; type: SymbolType;      // 'outlet' | 'sink' | 'light-ceiling' | ...
+  id; layerId; type: SymbolType;      // 'outlet' | 'sink' | 'bed' | 'sofa' | ...
   rotation: number;                    // degrees
   position: Point;                     // authoritative for free-placed symbols
   wallId?: string; t?: number;         // set instead, for wall-mounted symbols
+  width?: number; depth?: number;      // furniture only: overrides the catalog's default footprint
 }
 interface Run { id; layerId; type: 'circuit' | 'supply-pipe' | 'drain-pipe'; points: Point[] }
 
@@ -165,11 +170,11 @@ hundred walls) to run every frame.
 
 ### Layers (multi-discipline overlays)
 
-Every plan has four fixed layers, seeded by `createDefaultLayers()`:
+Every plan has five fixed layers, seeded by `createDefaultLayers()`:
 Architectural (walls/doors/windows/rooms/labels — unchanged from before,
 and the only layer that predates this system, so it has no `layerId` of
-its own on its entities), Electrical, Plumbing, and Lighting/Sockets/AC.
-The `LayerBar` (a tab strip under the top bar) switches which layer is
+its own on its entities), Electrical, Plumbing, Lighting/Sockets/AC, and
+Furniture. The `LayerBar` (a tab strip under the top bar) switches which layer is
 "active" — only the active layer is editable; every other *visible* layer
 renders as a dimmed (30% opacity) reference underlay, and the active layer
 always renders at full opacity regardless of its own visibility flag (you
@@ -178,24 +183,65 @@ something else).
 
 Switching the active layer contextually swaps the left tool bar
 (`Toolbar.tsx`): the Architectural layer shows the original Wall/Door/
-Window/Label/Measure tools; the other three each show Select + a **Symbol**
+Window/Label/Measure tools; the other four each show Select + a **Symbol**
 tool (click opens a small flyout picker listing that layer's fixture types
-from `symbolCatalogFor()`, e.g. Outlet/Switch/Panel for Electrical) + a
-**Run** tool (chains points like the wall tool, but — unlike walls, which
-materialize a `Wall` per click — accumulates the whole polyline in a draft
-and only commits one `Run` entity when you finish with Enter, double-click,
-or Escape-to-cancel).
+from `symbolCatalogFor()`, e.g. Outlet/Switch/Panel for Electrical). The
+three utility layers (Electrical, Plumbing, Lighting/Sockets/AC) additionally
+show a **Run** tool (chains points like the wall tool, but — unlike walls,
+which materialize a `Wall` per click — accumulates the whole polyline in a
+draft and only commits one `Run` entity when you finish with Enter,
+double-click, or Escape-to-cancel); Furniture has no Run tool since
+furniture doesn't have wiring/piping to trace — `RUN_TYPE_BY_LAYER_KIND` is
+a `Partial` map and the Toolbar simply omits the button for any layer kind
+missing from it.
 
-Symbols and runs are intentionally generic across all three fixture layers
-rather than one bespoke type per discipline: a `PlacedSymbol` is just
-`{ type, position/rotation, optional wallId+t }` and a `Run` is just
-`{ type, points }`, with `layerId` distinguishing which discipline (and
-therefore which color/catalog) they belong to. Wall-mounted symbol types
-(outlets, switches, thermostats, wall lights, AC units) snap to and slide
-along the nearest wall exactly like doors/windows do; free-placed types
-(sinks, toilets, showers, ceiling lights) just place at the clicked point.
-Deleting a wall cascades to any symbols mounted on it, same as it does for
-openings.
+Symbols and runs are intentionally generic across every fixture layer rather
+than one bespoke type per discipline: a `PlacedSymbol` is just
+`{ type, position/rotation, optional wallId+t, optional width/depth }` and a
+`Run` is just `{ type, points }`, with `layerId` distinguishing which
+discipline (and therefore which color/catalog) they belong to. Wall-mounted
+symbol types (outlets, switches, thermostats, wall lights, AC units, counters,
+wardrobes) snap to and slide along the nearest wall exactly like doors/
+windows do; free-placed types (sinks, toilets, beds, sofas, tables) just
+place at the clicked point. Deleting a wall cascades to any symbols mounted
+on it, same as it does for openings.
+
+### Furniture (resizable symbols)
+
+Furniture reuses the exact same `PlacedSymbol`/`SymbolsLayer`/Select-tool
+machinery built for Phase 2's fixture layers — a bed, a sofa, and an outlet
+are all "a rotated footprint, maybe wall-snapped" as far as the data model is
+concerned. The one real addition is **per-instance resizing**, since a queen
+bed and a king bed shouldn't need separate catalog entries:
+
+- `SymbolCatalogEntry` now carries `width`/`depth` (not a single `size`) plus
+  a `resizable` flag, true only for the ten furniture types. `symbolFootprint()`
+  resolves a symbol's *actual* footprint — its own `width`/`depth` override if
+  set, falling back to the catalog default otherwise.
+- Because furniture footprints are often large rectangles (not small
+  roughly-square fixtures), `hitTestSymbol` tests the true rotated rectangle
+  (`geometry/rect.ts#pointInRotatedRect`) rather than a circular radius —
+  otherwise a large bed's generous circular hit-area would swallow clicks
+  well outside its actual footprint.
+- Selecting a single resizable symbol shows two square handles (right-edge
+  and bottom-edge midpoints, at `symbolResizeHandles()`) rendered by
+  `SymbolResizeOverlay`. Dragging one projects the cursor into the symbol's
+  local (unrotated) frame via `worldToLocal` — the same inverse-rotation math
+  `pointInRotatedRect` uses internally — and sets `width` or `depth` to twice
+  the local-axis distance from center, snapped to the grid increment like
+  other drags. This is a **center-anchored** resize (both edges move
+  together; the center stays put), not an anchored-opposite-edge resize —
+  simpler to implement correctly, at the cost of not matching the more
+  familiar "drag a corner, the opposite corner stays fixed" feel.
+- The Properties panel shows editable Width/Depth fields for resizable
+  symbols alongside the canvas handles. Getting this right surfaced a small
+  pre-existing gap: `NumberField`'s displayed text was seeded once from
+  `useState` and never resynced when the same field's underlying value
+  changed via a canvas drag (it would show a stale number until the field
+  was blurred or the entity was reselected) — fixed with a `useEffect` that
+  re-syncs the text from the live value whenever the input isn't currently
+  focused, which benefits every numeric field in the panel (wall length
+  during an endpoint drag, not just furniture resize).
 
 ### Editing conveniences (units, scale, marquee, nudge, copy/paste)
 
@@ -276,10 +322,10 @@ you actually cared about.
 - Room detection assumes a roughly axis/angle-clean drawing; extremely
   degenerate or self-overlapping wall geometry isn't guaranteed to produce
   sensible faces.
-- **The four layers are fixed** — Architectural, Electrical, Plumbing, and
-  Lighting/Sockets/AC always exist and can't be renamed, reordered, deleted,
-  or added to. Good enough for a single-family home; there's no "Add layer"
-  flow yet.
+- **The five layers are fixed** — Architectural, Electrical, Plumbing,
+  Lighting/Sockets/AC, and Furniture always exist and can't be renamed,
+  reordered, deleted, or added to. Good enough for a single-family home;
+  there's no "Add layer" flow yet.
 - **The Run tool's type is fixed per layer** (Electrical/Lighting draw
   `circuit`, Plumbing draws `supply-pipe`) — there's no in-tool way to draw
   a `drain-pipe` directly; change a run's type afterwards via the Properties
@@ -305,6 +351,14 @@ you actually cared about.
   within the same browser tab/session, not across tabs or after a reload.
   Trades that off for a simpler, permission-free implementation and copying
   the exact entity shapes instead of round-tripping through a text format.
+- **Furniture resize is center-anchored**, not opposite-edge-anchored —
+  dragging the width handle grows/shrinks both left and right edges evenly
+  around the center, rather than keeping one edge fixed like most design
+  tools. Simpler math, different feel; see "Furniture" above.
+- **No compound furniture pieces** — a dining table and its chairs are
+  placed as separate symbols the user arranges themselves, not a single
+  "table + 4 chairs" preset. Keeps the data model simple at the cost of a
+  few extra clicks for a common arrangement.
 
 ## Roadmap
 
@@ -371,38 +425,31 @@ post-hoc Properties panel edit.
 
 ### Phase 3 — Furniture & symbol library
 
-Same "2D, abstracted, measurement-first" philosophy as the door/window
-symbols already in the app — **not** photorealistic or skeuomorphic. A
-piece of furniture should read as a simple, standard top-down line-art
-shape (a rectangle with a diagonal for a bed, an L for a sectional, a circle
-for a round table) with an accurate footprint and a label, so the user can
-check clearances and layout at a glance without the platform trying to
-"look like" the room. This mirrors how real architectural symbol libraries
-work, and keeps the rendering code simple (more SVG shape presets, no image
-assets, no asset licensing to worry about).
+✅ **Shipped.** See "Furniture (resizable symbols)" above for how it works.
+Recap:
 
-Phase 2 already resolved the "is this a separate entity type?" question
-that used to sit here: `PlacedSymbol` (`type` + `rotation` + `position` or
-`wallId`/`t`) is generic enough that furniture is just more entries in
-`lib/symbolCatalog.ts` under a new `'furniture'` layer kind — a bed, a sofa,
-and an outlet are all "a rotated footprint, maybe wall-snapped" as far as
-the data model and `SymbolsLayer`/`resolveSymbolPosition` are concerned.
-Concretely, what Phase 3 actually adds on top of the existing machinery:
+- Same "2D, abstracted, measurement-first" philosophy as the door/window
+  symbols — simple top-down line-art (a bed with pillows, an L-notch for a
+  sectional, a circle for a round table), not photorealistic, so clearances
+  and layout are easy to read without the platform pretending to show what
+  the room actually looks like.
+- A `'furniture'` `LayerKind` + fifth default layer, with a ten-type catalog
+  (bed, sofa, sectional, dining table, round table, chair, counter, island,
+  wardrobe, desk) reusing the exact same `PlacedSymbol`/`SymbolsLayer`/
+  Select-tool/Properties-panel machinery built for Phase 2 — confirming that
+  design bet paid off, since furniture needed zero new entity types.
+- **Resize via edge handles** — the one genuine addition: optional
+  `width`/`depth` overrides on `PlacedSymbol`, a true rotated-rectangle hit
+  test (large furniture footprints made the old circular hit-radius a poor
+  approximation), and two drag handles for center-anchored resizing.
+- Everything else — drag-place, 15° rotation snap (via wall-mounted
+  auto-alignment), wall-snap for wall-hugging pieces (wardrobes, counters),
+  copy/paste, undo/redo, JSON/PNG export — fell out of the existing Symbol
+  infrastructure for free, as designed.
 
-- A `'furniture'` `LayerKind` + a fifth default layer, and a furniture
-  catalog entry per common footprint (bed sizes, sofa/sectional, dining
-  table + chairs, kitchen counter/island, wardrobe, desk) — each a
-  `{ type, label, wallMounted, size }` like today's electrical/plumbing
-  entries, plus a new `SymbolIcon` case per shape.
-- **Resize via corner handles** — today's symbols have a fixed footprint
-  per type; furniture is the first case that needs per-instance width/depth
-  (a "queen bed" and a "king bed" shouldn't need separate catalog entries).
-  This is the one real data model addition: an optional `width`/`depth`
-  override on `PlacedSymbol` alongside its catalog default.
-- Everything else — drag-place, 15° rotation snap, wall-snap for
-  wall-hugging pieces (wardrobes, counters), Select-tool integration,
-  Properties panel editing — falls out of the existing Symbol
-  infrastructure for free.
+Deliberately deferred (see "Known limitations" above): opposite-edge-anchored
+resize (shipped center-anchored instead) and compound furniture presets
+(a table+chairs group placed as one item).
 
 ### Phase 4 — Professional export & multi-floor/3D
 

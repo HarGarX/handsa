@@ -12,6 +12,7 @@ import { RoomsLayer } from '../render/RoomsLayer';
 import { SymbolsLayer } from '../render/SymbolsLayer';
 import { RunsLayer } from '../render/RunsLayer';
 import { SelectionOverlay } from '../render/SelectionOverlay';
+import { SymbolResizeOverlay } from '../render/SymbolResizeOverlay';
 import { ToolPreviewLayer } from '../render/ToolPreviewLayer';
 import { LabelEditorOverlay } from './LabelEditorOverlay';
 import { ZoomControls } from './ZoomControls';
@@ -284,6 +285,11 @@ export function Canvas() {
     [plan.walls, selectedWallIds],
   );
 
+  const singleSelectedSymbol = useMemo(() => {
+    if (selection.length !== 1 || selection[0]!.type !== 'symbol') return null;
+    return plan.symbols.find((s) => s.id === selection[0]!.id) ?? null;
+  }, [selection, plan.symbols]);
+
   const isArchitecturalActive = useMemo(() => {
     const layer = plan.layers.find((l) => l.id === activeLayerId);
     return !layer || layer.kind === 'architectural';
@@ -351,6 +357,7 @@ export function Canvas() {
               </g>
             ))}
           <SelectionOverlay selectedWalls={selectedWalls} scale={viewport.scale} />
+          <SymbolResizeOverlay symbol={singleSelectedSymbol} walls={plan.walls} scale={viewport.scale} />
           <ToolPreviewLayer
             wallDraft={interaction.wallDraft}
             measureDraft={interaction.measureDraft}

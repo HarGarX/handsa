@@ -41,7 +41,8 @@ class RunTool implements Tool {
 
     if (!draft) {
       const layer = plan.layers.find((l) => l.id === activeLayerId);
-      const runType = layer && layer.kind !== 'architectural' ? RUN_TYPE_BY_LAYER_KIND[layer.kind] : 'circuit';
+      const runType =
+        (layer && layer.kind !== 'architectural' ? RUN_TYPE_BY_LAYER_KIND[layer.kind] : undefined) ?? 'circuit';
       setInteraction({ runDraft: { layerId: activeLayerId, type: runType, points: [snapped], previewPoint: snapped } });
       return;
     }

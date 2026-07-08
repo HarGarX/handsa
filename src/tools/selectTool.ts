@@ -3,10 +3,11 @@ import type { Point } from '../types/plan';
 import { findCoincidentEndpoints, findNearestEndpoint, type EndpointRef } from '../geometry/endpoints';
 import { hitTestLabel, hitTestOpening, hitTestRun, hitTestSymbol, hitTestWall } from '../geometry/hitTest';
 import { clampOpeningT } from '../geometry/opening';
-import { resolveSymbolPosition } from '../geometry/placedSymbol';
-import { normalizeRect, pointInRect, type Rect } from '../geometry/rect';
+import { resolveSymbolPosition, symbolResizeHandles } from '../geometry/placedSymbol';
+import { normalizeRect, pointInRect, worldToLocal, type Rect } from '../geometry/rect';
 import { pointAt, projectPointToSegment } from '../geometry/segment';
 import { snapPoint, snapValue } from '../geometry/snapping';
+import { symbolCatalogEntry, symbolFootprint } from '../lib/symbolCatalog';
 import type { SelectionEntry } from '../store/types';
 import type { Tool, PointerInfo } from './types';
 
@@ -16,10 +17,13 @@ const OPENING_HIT_SCREEN_PX = 10;
 const LABEL_HIT_SCREEN_PX = 10;
 const SYMBOL_HIT_SCREEN_PX = 8;
 const RUN_HIT_SCREEN_PX = 8;
+const RESIZE_HANDLE_SCREEN_PX = 8;
 const DRAG_THRESHOLD_SCREEN_PX = 3;
 const ENDPOINT_MAGNET_SCREEN_PX = 20;
+const MIN_FURNITURE_DIMENSION_CM = 20;
+const MAX_FURNITURE_DIMENSION_CM = 500;
 
-type DragMode = 'none' | 'endpoint' | 'wall' | 'opening' | 'label' | 'symbol' | 'run' | 'marquee';
+type DragMode = 'none' | 'endpoint' | 'wall' | 'opening' | 'label' | 'symbol' | 'run' | 'marquee' | 'resize-width' | 'resize-depth';
 
 class SelectTool implements Tool {
   id = 'select' as const;
@@ -44,6 +48,9 @@ class SelectTool implements Tool {
   private runDragStartWorld: Point = { x: 0, y: 0 };
   private marqueeStartWorld: Point = { x: 0, y: 0 };
   private marqueeAdditive = false;
+  private resizeSymbolId: string | null = null;
+  private resizeCenter: Point = { x: 0, y: 0 };
+  private resizeRotation = 0;
 
   private applySelectionOnDown(entry: SelectionEntry, shiftKey: boolean, currentSelection: SelectionEntry[]): void {
     const alreadySelected = currentSelection.some((s) => s.type === entry.type && s.id === entry.id);
@@ -100,6 +107,25 @@ class SelectTool implements Tool {
     const isArchitectural = !activeLayer || activeLayer.kind === 'architectural';
 
     if (!isArchitectural) {
+      if (selection.length === 1 && selection[0]!.type === 'symbol') {
+        const selectedSymbol = plan.symbols.find((s) => s.id === selection[0]!.id);
+        if (selectedSymbol && symbolCatalogEntry(selectedSymbol.type).resizable) {
+          const center = resolveSymbolPosition(selectedSymbol, plan.walls);
+          const { width, depth } = symbolFootprint(selectedSymbol);
+          const { widthHandle, depthHandle } = symbolResizeHandles(center, selectedSymbol.rotation, width, depth);
+          const handleRadiusCm = RESIZE_HANDLE_SCREEN_PX / viewport.scale;
+          const nearWidthHandle = Math.hypot(widthHandle.x - info.world.x, widthHandle.y - info.world.y) <= handleRadiusCm;
+          const nearDepthHandle = Math.hypot(depthHandle.x - info.world.x, depthHandle.y - info.world.y) <= handleRadiusCm;
+          if (nearWidthHandle || nearDepthHandle) {
+            this.dragMode = nearWidthHandle ? 'resize-width' : 'resize-depth';
+            this.resizeSymbolId = selectedSymbol.id;
+            this.resizeCenter = center;
+            this.resizeRotation = selectedSymbol.rotation;
+            return;
+          }
+        }
+      }
+
       const symbol = hitTestSymbol(
         plan.symbols.filter((s) => s.layerId === activeLayerId),
         plan.walls,
@@ -204,6 +230,22 @@ class SelectTool implements Tool {
 
     if (this.dragMode === 'marquee') {
       state.setInteraction({ marquee: { start: this.marqueeStartWorld, end: info.world } });
+      return;
+    }
+
+    if ((this.dragMode === 'resize-width' || this.dragMode === 'resize-depth') && this.resizeSymbolId) {
+      const local = worldToLocal(info.world, this.resizeCenter, this.resizeRotation);
+      const clamp = (v: number) => Math.min(MAX_FURNITURE_DIMENSION_CM, Math.max(MIN_FURNITURE_DIMENSION_CM, v));
+      const dimension = (localAxis: number) => {
+        const raw = Math.abs(localAxis) * 2;
+        const snapped = snapEnabled ? snapValue(raw, snapIncrement) : raw;
+        return clamp(snapped);
+      };
+      if (this.dragMode === 'resize-width') {
+        state.updateSymbolLive(this.resizeSymbolId, { width: dimension(local.x) });
+      } else {
+        state.updateSymbolLive(this.resizeSymbolId, { depth: dimension(local.y) });
+      }
       return;
     }
 
@@ -315,6 +357,7 @@ class SelectTool implements Tool {
     this.symbolDragWallId = null;
     this.runDragId = null;
     this.runDragOriginalPoints = [];
+    this.resizeSymbolId = null;
     usePlanStore.getState().setInteraction({ hoveredEndpoint: null });
   }
 

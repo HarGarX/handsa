@@ -2,7 +2,8 @@ import type { Label, Opening, PlacedSymbol, Point, Run, Wall } from '../types/pl
 import { openingExtent } from './opening';
 import { projectPointToSegment } from './segment';
 import { resolveSymbolPosition } from './placedSymbol';
-import { symbolCatalogEntry } from '../lib/symbolCatalog';
+import { pointInRotatedRect } from './rect';
+import { symbolFootprint } from '../lib/symbolCatalog';
 import type { WallEnd } from './endpoints';
 
 /** Finds the wall whose body (thickness + tolerance) contains `point`, nearest first. */
@@ -65,15 +66,22 @@ export function hitTestLabel(labels: Label[], point: Point, toleranceCm: number)
   return null;
 }
 
-/** Finds the placed symbol under `point` (within its footprint + tolerance), nearest first. */
+/**
+ * Finds the placed symbol under `point`, testing its true rotated-rectangle
+ * footprint (not just a circular radius) since furniture footprints are
+ * often rectangular and can be large enough that a circle would be a poor
+ * approximation. Ties (overlapping symbols) break by center distance.
+ */
 export function hitTestSymbol(symbols: PlacedSymbol[], walls: Wall[], point: Point, toleranceCm: number): PlacedSymbol | null {
   let best: PlacedSymbol | null = null;
   let bestDist = Infinity;
   for (const s of symbols) {
     const pos = resolveSymbolPosition(s, walls);
-    const limit = symbolCatalogEntry(s.type).size / 2 + toleranceCm;
+    const { width, depth } = symbolFootprint(s);
+    const inside = pointInRotatedRect(point, pos, width + toleranceCm * 2, depth + toleranceCm * 2, s.rotation);
+    if (!inside) continue;
     const d = Math.hypot(pos.x - point.x, pos.y - point.y);
-    if (d <= limit && d < bestDist) {
+    if (d < bestDist) {
       bestDist = d;
       best = s;
     }

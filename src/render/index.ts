@@ -7,4 +7,5 @@ export * from './RoomsLayer';
 export * from './SymbolsLayer';
 export * from './RunsLayer';
 export * from './SelectionOverlay';
+export * from './SymbolResizeOverlay';
 export * from './ToolPreviewLayer';

@@ -137,7 +137,7 @@ function SymbolGhostPreview({ ghost, scale }: { ghost: SymbolGhost; scale: numbe
   const entry = symbolCatalogEntry(ghost.type);
   return (
     <g transform={`translate(${ghost.position.x} ${ghost.position.y}) rotate(${ghost.rotation})`} opacity={0.5}>
-      <SymbolIcon type={ghost.type} size={entry.size} color="#2563eb" scale={scale} />
+      <SymbolIcon type={ghost.type} width={entry.width} depth={entry.depth} color="#2563eb" scale={scale} />
     </g>
   );
 }

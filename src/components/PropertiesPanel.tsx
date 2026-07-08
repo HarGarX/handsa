@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { PanelRightClose, PanelRightOpen } from 'lucide-react';
 import { usePlanStore } from '../store/usePlanStore';
 import type { Hinge, RunType, SymbolType, Swing } from '../types/plan';
 import { unitDirection, wallLength } from '../geometry/segment';
 import { cmToFieldValue, fieldValueToCm, lengthFieldSuffix } from '../geometry/format';
-import { RUN_TYPE_LABELS, symbolCatalogEntry, symbolCatalogFor } from '../lib/symbolCatalog';
+import { RUN_TYPE_LABELS, symbolCatalogEntry, symbolCatalogFor, symbolFootprint } from '../lib/symbolCatalog';
 
 function NumberField({
   label,
@@ -24,6 +24,14 @@ function NumberField({
   onCommit: (value: number) => void;
 }) {
   const [text, setText] = useState(String(value));
+  const focusedRef = useRef(false);
+
+  // Keep the displayed text in sync with external updates (e.g. a canvas
+  // drag changing this same value) as long as the user isn't actively
+  // typing in this field right now.
+  useEffect(() => {
+    if (!focusedRef.current) setText(String(value));
+  }, [value]);
 
   function commit() {
     const parsed = parseFloat(text);
@@ -46,8 +54,14 @@ function NumberField({
           min={min}
           max={max}
           step={step}
+          onFocus={() => {
+            focusedRef.current = true;
+          }}
           onChange={(e) => setText(e.target.value)}
-          onBlur={commit}
+          onBlur={() => {
+            focusedRef.current = false;
+            commit();
+          }}
           onKeyDown={(e) => {
             if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
           }}
@@ -280,6 +294,20 @@ function SymbolProperties({ symbolId }: { symbolId: string }) {
       symbols: plan.symbols.map((s) => (s.id === symbolId ? { ...s, rotation } : s)),
     }));
   }
+  function setWidth(width: number) {
+    commitImmediate((plan) => ({
+      ...plan,
+      symbols: plan.symbols.map((s) => (s.id === symbolId ? { ...s, width } : s)),
+    }));
+  }
+  function setDepth(depth: number) {
+    commitImmediate((plan) => ({
+      ...plan,
+      symbols: plan.symbols.map((s) => (s.id === symbolId ? { ...s, depth } : s)),
+    }));
+  }
+
+  const footprint = symbolFootprint(symbol);
 
   return (
     <div key={symbolId} className="flex flex-col gap-3">
@@ -299,12 +327,20 @@ function SymbolProperties({ symbolId }: { symbolId: string }) {
         </select>
       </label>
       <NumberField label="Rotation (degrees)" value={Math.round(symbol.rotation)} min={0} max={359} onCommit={setRotation} />
-      <p className="text-xs text-gray-400">
-        {symbol.wallId
-          ? `Wall-mounted — slides along its wall in the Select tool.`
-          : `Free-placed — drag to reposition.`}{' '}
-        Footprint: {entry.size} cm.
-      </p>
+      {entry.resizable ? (
+        <>
+          <LengthField label="Width" valueCm={footprint.width} minCm={20} maxCm={500} onCommitCm={setWidth} />
+          <LengthField label="Depth" valueCm={footprint.depth} minCm={20} maxCm={500} onCommitCm={setDepth} />
+          <p className="text-xs text-gray-400">Drag the small square handles on the canvas to resize instead.</p>
+        </>
+      ) : (
+        <p className="text-xs text-gray-400">
+          {symbol.wallId
+            ? `Wall-mounted — slides along its wall in the Select tool.`
+            : `Free-placed — drag to reposition.`}{' '}
+          Footprint: {entry.width} × {entry.depth} cm.
+        </p>
+      )}
     </div>
   );
 }

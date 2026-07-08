@@ -33,7 +33,9 @@ function computePlacement(worldX: number, worldY: number): Placement | null {
     if (snapEnabled) {
       t = snapValue(t * len, snapIncrement) / len;
     }
-    const halfT = Math.min(0.5, entry.size / 2 / len);
+    // Wall-mounted rotation aligns local x (width) with the wall direction, so the
+    // along-wall extent to clamp against is the catalog width, not the depth.
+    const halfT = Math.min(0.5, entry.width / 2 / len);
     t = Math.min(1 - halfT, Math.max(halfT, t));
 
     return {

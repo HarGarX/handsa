@@ -41,7 +41,7 @@ export interface Label {
 // the new layer-aware entities and always reference one of the non-
 // architectural layers via layerId.
 
-export type LayerKind = 'architectural' | 'electrical' | 'plumbing' | 'lighting-power-hvac';
+export type LayerKind = 'architectural' | 'electrical' | 'plumbing' | 'lighting-power-hvac' | 'furniture';
 
 export interface Layer {
   id: string;
@@ -66,7 +66,18 @@ export type SymbolType =
   | 'light-ceiling'
   | 'light-wall'
   | 'ac-unit'
-  | 'thermostat';
+  | 'thermostat'
+  // furniture
+  | 'bed'
+  | 'sofa'
+  | 'sectional'
+  | 'dining-table'
+  | 'dining-table-round'
+  | 'chair'
+  | 'counter'
+  | 'island'
+  | 'wardrobe'
+  | 'desk';
 
 export interface PlacedSymbol {
   id: string;
@@ -76,6 +87,8 @@ export interface PlacedSymbol {
   rotation: number; // degrees
   wallId?: string; // set for wall-mounted types (outlets, switches, wall lights, thermostats)
   t?: number; // 0..1 position along wallId, only set alongside wallId
+  width?: number; // cm, overrides the catalog default footprint width (furniture only)
+  depth?: number; // cm, overrides the catalog default footprint depth (furniture only)
 }
 
 export type RunType = 'circuit' | 'supply-pipe' | 'drain-pipe';
@@ -119,6 +132,7 @@ export function createDefaultLayers(): Layer[] {
       color: '#22c55e',
       visible: true,
     },
+    { id: 'layer-furniture', name: 'Furniture', kind: 'furniture', color: '#a855f7', visible: true },
   ];
 }
 
@@ -141,13 +155,20 @@ export function createEmptyPlan(id: string, name: string): Plan {
 /**
  * Fills in the layer system for a plan saved before it existed (or missing
  * fields for any other reason) with sensible defaults, rather than treating
- * older saved/exported plans as invalid. Safe to call on an already-current
- * plan (no-op).
+ * older saved/exported plans as invalid. Also backfills any *individual*
+ * default layer added after a plan was first saved (e.g. a plan saved when
+ * only the Phase 2 layers existed still needs the Furniture layer merged
+ * in, not just an empty-layers fallback). Safe to call on an
+ * already-current plan (no-op).
  */
 export function normalizePlan(plan: Plan): Plan {
+  const existingLayers = plan.layers ?? [];
+  const existingKinds = new Set(existingLayers.map((l) => l.kind));
+  const missingDefaults = createDefaultLayers().filter((l) => !existingKinds.has(l.kind));
+
   return {
     ...plan,
-    layers: plan.layers && plan.layers.length > 0 ? plan.layers : createDefaultLayers(),
+    layers: [...existingLayers, ...missingDefaults],
     symbols: plan.symbols ?? [],
     runs: plan.runs ?? [],
   };
@@ -217,6 +238,8 @@ export function isValidPlanShape(value: unknown): value is Omit<Plan, 'layers' |
       if (typeof sym.id !== 'string' || typeof sym.layerId !== 'string') return false;
       if (typeof sym.type !== 'string') return false;
       if (!isPoint(sym.position) || typeof sym.rotation !== 'number') return false;
+      if (sym.width !== undefined && typeof sym.width !== 'number') return false;
+      if (sym.depth !== undefined && typeof sym.depth !== 'number') return false;
     }
   }
 
