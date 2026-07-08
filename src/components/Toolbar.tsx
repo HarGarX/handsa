@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { MousePointer2, BrickWall, DoorOpen, AppWindow, Type, Ruler, Shapes, Cable, ChevronRight } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { usePlanStore } from '../store/usePlanStore';
@@ -46,6 +46,23 @@ export function Toolbar() {
   const activeSymbolType = usePlanStore((s) => s.activeSymbolType);
   const setActiveSymbolType = usePlanStore((s) => s.setActiveSymbolType);
   const [showSymbolPicker, setShowSymbolPicker] = useState(false);
+
+  // The picker's open/closed state is local to this component and otherwise
+  // survives a layer switch untouched. Left open (e.g. the user switches
+  // layers without picking an option), the *next* click on the Symbol
+  // button would toggle it closed instead of opening a fresh picker for the
+  // newly active layer — reset it whenever the active layer changes so each
+  // layer always starts with the picker closed.
+  useEffect(() => {
+    setShowSymbolPicker(false);
+  }, [activeLayerId]);
+
+  // Same reasoning: switching to a different tool (Select/Run) without
+  // picking an option should close a picker left open, not leave it
+  // floating stale over whichever tool is now active.
+  useEffect(() => {
+    if (activeTool !== 'symbol') setShowSymbolPicker(false);
+  }, [activeTool]);
 
   const activeLayer = layers.find((l) => l.id === activeLayerId);
   const isArchitectural = !activeLayer || activeLayer.kind === 'architectural';
